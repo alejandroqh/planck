@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    rc::Rc,
+    sync::Arc,
+    time::Duration,
+};
 
 use floem::{
     IntoView, View,
@@ -11,7 +16,7 @@ use floem::{
         create_effect, create_memo, create_rw_signal,
     },
     style::CursorStyle,
-    text::{Attrs, AttrsList, FamilyOwned, TextLayout},
+    text::{Attrs, AttrsList, FONT_SYSTEM, FamilyOwned, TextLayout, fontdb},
     views::{
         Decorators, VirtualVector, container, dyn_stack, empty, label,
         scroll::{PropagatePointerWheel, scroll},
@@ -84,6 +89,8 @@ struct SettingsData {
     items: RwSignal<im::Vector<SettingsItem>>,
     kinds: RwSignal<im::Vector<(String, RwSignal<Point>)>>,
     filtered_items: RwSignal<im::Vector<SettingsItem>>,
+    /// Font family settings (`kind.field`) whose "Mono fonts only" box is unticked.
+    all_fonts_fields: RwSignal<HashSet<String>>,
     common: Rc<CommonData>,
 }
 
@@ -235,6 +242,7 @@ impl SettingsData {
             filtered_items,
             items,
             kinds,
+            all_fonts_fields: cx.create_rw_signal(HashSet::new()),
             common,
         }
     }
@@ -450,6 +458,15 @@ fn settings_item_view(
         let item = item.clone();
         move || {
             let cx = Scope::current();
+            if !item.header && item.field.ends_with("font-family") {
+                return font_family_view(
+                    &item,
+                    settings_data.all_fonts_fields,
+                    settings_data.common.window_common.size,
+                    config,
+                )
+                .into_any();
+            }
             if let Some(editor_value) = editor_value {
                 let text_input_view = TextInputBuilder::new()
                     .value(editor_value)
@@ -537,11 +554,13 @@ fn settings_item_view(
                     .map(|s| s.to_string())
                     .unwrap_or_default();
                 let current_value = create_rw_signal(current_value);
+                let dropdown_items = dropdown.items.clone();
+                let items = create_memo(move |_| dropdown_items.clone());
 
                 dropdown_view(
                     &item,
                     current_value,
-                    dropdown,
+                    items,
                     expanded,
                     settings_data.common.window_common.size,
                     config,
@@ -1068,7 +1087,7 @@ pub fn theme_color_settings_view(
 fn dropdown_view(
     item: &SettingsItem,
     current_value: RwSignal<String>,
-    dropdown: &DropdownInfo,
+    items: Memo<im::Vector<String>>,
     expanded: RwSignal<bool>,
     window_size: RwSignal<Size>,
     config: ReadSignal<Arc<PlanckConfig>>,
@@ -1081,16 +1100,14 @@ fn dropdown_view(
 
     {
         let item = item.to_owned();
-        let dropdown = dropdown.to_owned();
         create_effect(move |_| {
             if expanded.get() {
                 let item = item.clone();
-                let dropdown = dropdown.clone();
                 let id = add_overlay(Point::ZERO, move |_| {
                     dropdown_scroll(
                         &item.clone(),
                         current_value,
-                        &dropdown.clone(),
+                        items,
                         expanded,
                         dropdown_scroll_focus,
                         dropdown_input_focus,
@@ -1172,11 +1189,96 @@ fn dropdown_view(
     })
 }
 
+/// Shown for an empty font family setting, which means "use the fallback".
+const DEFAULT_FONT_LABEL: &str = "(default)";
+
+/// Font families installed on the system, sorted and deduplicated.
+fn system_font_families(mono_only: bool) -> Vec<String> {
+    let font_system = FONT_SYSTEM.lock();
+    let mut families: Vec<String> = font_system
+        .db()
+        .faces()
+        .filter(|face| !mono_only || face.monospaced)
+        .filter_map(|face| {
+            face.families
+                .iter()
+                .find(|(_, lang)| *lang == fontdb::Language::English_UnitedStates)
+                .or_else(|| face.families.first())
+                .map(|(name, _)| name.clone())
+        })
+        .collect();
+    families.sort_by_key(|name| name.to_lowercase());
+    families.dedup();
+    families
+}
+
+/// A dropdown of installed fonts with a "Mono fonts only" filter.
+fn font_family_view(
+    item: &SettingsItem,
+    all_fonts_fields: RwSignal<HashSet<String>>,
+    window_size: RwSignal<Size>,
+    config: ReadSignal<Arc<PlanckConfig>>,
+) -> impl View + use<> {
+    let key = format!("{}.{}", item.kind, item.field);
+    let mono_only = {
+        let key = key.clone();
+        create_memo(move |_| !all_fonts_fields.with(|fields| fields.contains(&key)))
+    };
+
+    // The editor font defaults to the generic "monospace" family; every other
+    // font setting defaults to empty, meaning it falls back to another font.
+    let generic = if item.kind == "editor" && item.field == "font-family" {
+        "monospace"
+    } else {
+        DEFAULT_FONT_LABEL
+    };
+    let items = create_memo(move |_| {
+        let mut items = im::Vector::new();
+        items.push_back(generic.to_string());
+        items.extend(
+            system_font_families(mono_only.get())
+                .into_iter()
+                .filter(|name| name != generic),
+        );
+        items
+    });
+
+    let current_value = match &item.value {
+        SettingsValue::String(s) if !s.is_empty() => s.clone(),
+        _ => DEFAULT_FONT_LABEL.to_string(),
+    };
+    let current_value = create_rw_signal(current_value);
+    let expanded = create_rw_signal(false);
+
+    stack((
+        dropdown_view(item, current_value, items, expanded, window_size, config),
+        stack((
+            checkbox(move || mono_only.get(), config),
+            label(|| "Mono fonts only".to_string())
+                .style(|s| s.selectable(false)),
+        ))
+        .on_click_stop(move |_| {
+            all_fonts_fields.update(|fields| {
+                if !fields.remove(&key) {
+                    fields.insert(key.clone());
+                }
+            });
+        })
+        .style(|s| {
+            s.items_center()
+                .gap(6.0)
+                .margin_left(12.0)
+                .cursor(CursorStyle::Pointer)
+        }),
+    ))
+    .style(|s| s.items_center())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn dropdown_scroll(
     item: &SettingsItem,
     current_value: RwSignal<String>,
-    dropdown: &DropdownInfo,
+    items: Memo<im::Vector<String>>,
     expanded: RwSignal<bool>,
     dropdown_scroll_focus: RwSignal<bool>,
     dropdown_input_focus: RwSignal<bool>,
@@ -1196,8 +1298,13 @@ fn dropdown_scroll(
         label(move || local_item_string.clone())
             .on_click_stop(move |_| {
                 current_value.set(item_string.clone());
+                let value = if item_string == DEFAULT_FONT_LABEL {
+                    ""
+                } else {
+                    item_string.as_str()
+                };
                 if let Ok(value) = serde::Serialize::serialize(
-                    &item_string,
+                    &value,
                     toml_edit::ser::ValueSerializer::new(),
                 ) {
                     PlanckConfig::update_file(&kind, &field, value);
@@ -1213,12 +1320,10 @@ fn dropdown_scroll(
             })
     };
 
-    let items = dropdown.items.clone();
-
     let scroll_size = create_rw_signal(Size::ZERO);
 
     scroll({
-        dyn_stack(move || items.clone(), |item| item.to_string(), view_fn)
+        dyn_stack(move || items.get(), |item| item.to_string(), view_fn)
             .style(|s| s.flex_col().width_pct(100.0).cursor(CursorStyle::Pointer))
     })
     .style(move |s| {
