@@ -16,7 +16,7 @@ use floem::{
     },
 };
 use lapce_xi_rope::Rope;
-use planck_core::selection::Selection;
+use planck_core::{directory::Directory, selection::Selection};
 use planck_rpc::{
     file::{FileNodeViewData, FileNodeViewKind, Naming},
     source_control::FileDiffKind,
@@ -35,6 +35,7 @@ use crate::{
     source_control::SourceControlData,
     text_input::TextInputBuilder,
     window_tab::{Focus, WindowTabData},
+    workspace::PlanckWorkspace,
 };
 
 /// Blends `foreground` with `background`.
@@ -75,8 +76,8 @@ pub fn file_explorer_panel(
             window_tab_data.panel.section_open(PanelSection::OpenEditor),
             move |s| s.apply_if(!config.get().ui.open_editors_visible, |s| s.hide()),
         )
-        .add(
-            "File Explorer",
+        .add_with_header(
+            file_explorer_header(&window_tab_data.workspace, config),
             container(file_explorer_view(data, source_control))
                 .style(|s| s.size_full()),
             window_tab_data
@@ -85,6 +86,74 @@ pub fn file_explorer_panel(
         )
         .build()
         .debug_name("File Explorer Panel")
+}
+
+/// Section header naming what is open: a space (accent pill, name, folder count),
+/// a folder (neutral pill, name), or nothing yet.
+fn file_explorer_header(
+    workspace: &PlanckWorkspace,
+    config: ReadSignal<Arc<PlanckConfig>>,
+) -> impl View + use<> {
+    let is_space = workspace.space.is_some();
+    let (kind, name, detail) = if is_space {
+        let n = workspace.folders.len();
+        let plural = if n == 1 { "" } else { "s" };
+        ("SPACE", workspace.display(), format!("{n} folder{plural}"))
+    } else if workspace.path.is_some() {
+        ("FOLDER", workspace.display(), String::new())
+    } else {
+        ("", None, String::new())
+    };
+    let name = name.unwrap_or_else(|| "File Explorer".to_string());
+    let has_detail = !detail.is_empty();
+
+    stack((
+        label(move || kind.to_string()).style(move |s| {
+            let config = config.get();
+            let color = if is_space {
+                config.color(PlanckColor::PLANCK_TAB_ACTIVE_UNDERLINE)
+            } else {
+                config.color(PlanckColor::PANEL_FOREGROUND_DIM)
+            };
+            s.font_size(config.ui.font_size() as f32 - 3.0)
+                .font_bold()
+                .line_height(1.6)
+                .padding_horiz(5.0)
+                .margin_right(8.0)
+                .border(1.0)
+                .border_radius(4.0)
+                .border_color(color.multiply_alpha(0.6))
+                .background(color.multiply_alpha(0.12))
+                .color(color)
+                .selectable(false)
+                .apply_if(kind.is_empty(), |s| s.hide())
+        }),
+        label(move || name.clone()).style(|s| {
+            s.font_bold()
+                .text_ellipsis()
+                .min_width(0.0)
+                .selectable(false)
+        }),
+        label(move || detail.clone()).style(move |s| {
+            s.margin_left(8.0)
+                .flex_shrink(0.0f32)
+                .color(config.get().color(PlanckColor::PANEL_FOREGROUND_DIM))
+                .selectable(false)
+                .apply_if(!has_detail, |s| s.hide())
+        }),
+    ))
+    .style(|s| s.items_center().min_width(0.0))
+}
+
+/// `path` with the home directory shortened to `~`.
+fn tilde_path(path: &Path) -> String {
+    match Directory::home_dir()
+        .and_then(|home| path.strip_prefix(home).ok().map(|rest| rest.to_path_buf()))
+    {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        None => path.to_string_lossy().to_string(),
+    }
 }
 
 /// Initialize the file explorer's naming (renaming, creating, etc.) editor with the given path.
@@ -165,14 +234,21 @@ fn file_node_text_view(
     match node.kind.clone() {
         FileNodeViewKind::Path(path) => {
             if node.is_root {
-                // A space folder can carry its own display name.
-                let name = data
+                // A space folder can carry its own display name; then the location shows
+                // the folder itself, otherwise only where it lives, since the name says the rest.
+                let custom_name = data
                     .common
                     .workspace
                     .folders
                     .iter()
                     .find(|f| f.path == path)
-                    .and_then(|f| f.name.clone())
+                    .and_then(|f| f.name.clone());
+                let location = if custom_name.is_some() {
+                    tilde_path(&path)
+                } else {
+                    path.parent().map(tilde_path).unwrap_or_default()
+                };
+                let name = custom_name
                     .or_else(|| {
                         path.file_name().map(|f| f.to_string_lossy().to_string())
                     })
@@ -180,25 +256,24 @@ fn file_node_text_view(
                 container((
                     label(move || name.clone()).style(move |s| {
                         s.height(ui_line_height.get())
+                            .font_bold()
                             .color(file_node_text_color(
                                 config,
                                 node.clone(),
                                 source_control.clone(),
                             ))
-                            .padding_right(5.0)
+                            .padding_right(8.0)
                             .selectable(false)
                     }),
-                    label(move || path.to_string_lossy().to_string()).style(
-                        move |s| {
-                            s.height(ui_line_height.get())
-                                .color(
-                                    config
-                                        .get()
-                                        .color(PlanckColor::PANEL_FOREGROUND_DIM),
-                                )
-                                .selectable(false)
-                        },
-                    ),
+                    label(move || location.clone()).style(move |s| {
+                        s.height(ui_line_height.get())
+                            .color(
+                                config
+                                    .get()
+                                    .color(PlanckColor::PANEL_FOREGROUND_DIM),
+                            )
+                            .selectable(false)
+                    }),
                 ))
             } else {
                 container(

@@ -73,6 +73,10 @@ pub fn foldable_panel_section(
     ))
 }
 
+fn section_title(name: &'static str) -> impl View {
+    text(name).style(|s| s.selectable(false))
+}
+
 /// A builder for creating a foldable panel out of sections
 pub struct PanelBuilder {
     views: Vec<AnyView>,
@@ -93,39 +97,45 @@ impl PanelBuilder {
 
     fn add_general(
         mut self,
-        name: &'static str,
+        header: impl View + 'static,
         height: Option<PxPctAuto>,
         view: impl View + 'static,
         open: RwSignal<bool>,
         style: impl Fn(Style) -> Style + 'static,
     ) -> Self {
         let position = self.position;
-        let view = foldable_panel_section(
-            text(name).style(move |s| s.selectable(false)),
-            view,
-            open,
-            self.config,
-        )
-        .style(move |s| {
-            let s = s.width_full().flex_col();
-            // Use the manual height if given, otherwise if we're open behave flex,
-            // otherwise, do nothing so that there's no height
-            let s = if open.get() {
-                if let Some(height) = height {
-                    s.height(height)
+        let view = foldable_panel_section(header, view, open, self.config).style(
+            move |s| {
+                let s = s.width_full().flex_col();
+                // Use the manual height if given, otherwise if we're open behave flex,
+                // otherwise, do nothing so that there's no height
+                let s = if open.get() {
+                    if let Some(height) = height {
+                        s.height(height)
+                    } else {
+                        s.flex_grow(1.0f32).flex_basis(0.0)
+                    }
+                } else if position.is_bottom() {
+                    s.flex_grow(0.3f32).flex_basis(0.0)
                 } else {
-                    s.flex_grow(1.0f32).flex_basis(0.0)
-                }
-            } else if position.is_bottom() {
-                s.flex_grow(0.3f32).flex_basis(0.0)
-            } else {
-                s
-            };
+                    s
+                };
 
-            style(s)
-        });
+                style(s)
+            },
+        );
         self.views.push(view.into_any());
         self
+    }
+
+    /// Add a view to the panel under a custom header view instead of a plain title
+    pub fn add_with_header(
+        self,
+        header: impl View + 'static,
+        view: impl View + 'static,
+        open: RwSignal<bool>,
+    ) -> Self {
+        self.add_general(header, None, view, open, std::convert::identity)
     }
 
     /// Add a view to the panel
@@ -135,7 +145,13 @@ impl PanelBuilder {
         view: impl View + 'static,
         open: RwSignal<bool>,
     ) -> Self {
-        self.add_general(name, None, view, open, std::convert::identity)
+        self.add_general(
+            section_title(name),
+            None,
+            view,
+            open,
+            std::convert::identity,
+        )
     }
 
     /// Add a view to the panel with a custom style applied to the overall header+section-content
@@ -146,7 +162,7 @@ impl PanelBuilder {
         open: RwSignal<bool>,
         style: impl Fn(Style) -> Style + 'static,
     ) -> Self {
-        self.add_general(name, None, view, open, style)
+        self.add_general(section_title(name), None, view, open, style)
     }
 
     /// Add a view to the panel with a custom height that is only used when the panel is open
@@ -158,7 +174,7 @@ impl PanelBuilder {
         open: RwSignal<bool>,
     ) -> Self {
         self.add_general(
-            name,
+            section_title(name),
             Some(height.into()),
             view,
             open,
@@ -176,7 +192,7 @@ impl PanelBuilder {
         open: RwSignal<bool>,
         style: impl Fn(Style) -> Style + 'static,
     ) -> Self {
-        self.add_general(name, Some(height.into()), view, open, style)
+        self.add_general(section_title(name), Some(height.into()), view, open, style)
     }
 
     /// Add a view to the panel with a custom height that is only used when the panel is open
@@ -188,7 +204,7 @@ impl PanelBuilder {
         open: RwSignal<bool>,
     ) -> Self {
         self.add_general(
-            name,
+            section_title(name),
             Some(PxPctAuto::Pct(height)),
             view,
             open,
