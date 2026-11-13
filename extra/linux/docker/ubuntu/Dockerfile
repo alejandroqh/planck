@@ -124,26 +124,26 @@ env
 
 xx-cargo build \
   --frozen \
-  --package lapce-app \
+  --package planck-app \
   --profile release-lto \
   --no-default-features
 
-xx-verify "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/lapce
+xx-verify "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/planck
 
 mkdir -p /target
-mv -v "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/lapce /target/
+mv -v "${CARGO_TARGET_DIR}"/"$(xx-cargo --print-target-triple)"/release-lto/planck /target/
 
-cargo pkgid | cut -d'#' -f2 | cut -d'@' -f2 | cut -d':' -f2 | tee /target/lapce.version
+cargo pkgid | cut -d'#' -f2 | cut -d'@' -f2 | cut -d':' -f2 | tee /target/planck.version
 EOF
 
 FROM build-base AS dev
 COPY . ./dev
 
 FROM scratch AS binary
-COPY --from=build /target/lapce .
+COPY --from=build /target/planck .
 
 FROM scratch AS cross-binary
-COPY --from=build /target/lapce .
+COPY --from=build /target/planck .
 
 FROM build AS package-prepare
 WORKDIR /output
@@ -157,27 +157,27 @@ export _PACKAGE_ARCHITECTURE=$(xx-info debian-arch)
 mkdir -v -p ${PACKAGE_NAME}/{etc,usr/{bin,share/{applications,metainfo,pixmaps}},debian}
 cd ${PACKAGE_NAME}
 
-cp '/source/extra/linux/dev.lapce.lapce.desktop' './usr/share/applications/dev.lapce.lapce.desktop'
-cp '/source/extra/linux/dev.lapce.lapce.metainfo.xml' './usr/share/metainfo/dev.lapce.lapce.metainfo.xml'
-cp '/source/extra/images/logo.png' './usr/share/pixmaps/dev.lapce.lapce.png'
+cp '/source/extra/linux/io.github.alejandroqh.planck.desktop' './usr/share/applications/io.github.alejandroqh.planck.desktop'
+cp '/source/extra/linux/io.github.alejandroqh.planck.metainfo.xml' './usr/share/metainfo/io.github.alejandroqh.planck.metainfo.xml'
+cp '/source/extra/images/logo.png' './usr/share/pixmaps/io.github.alejandroqh.planck.png'
 
-mv '/target/lapce' './usr/bin/'
+mv '/target/planck' './usr/bin/'
 
-if [[ "${PACKAGE_NAME}" == "lapce" ]]; then
-  conflicts="lapce-nightly"
+if [[ "${PACKAGE_NAME}" == "planck" ]]; then
+  conflicts="planck-nightly"
 else
-  conflicts="lapce"
+  conflicts="planck"
 fi
 
 case "${RELEASE_TAG_NAME}" in
   nightly-*)
-    version=$(cat /target/lapce.version)
+    version=$(cat /target/planck.version)
     commit=$(echo "${RELEASE_TAG_NAME}" | cut -d'-' -f2)
     # date=$(date +%Y%m%d%H%M)
     RELEASE_TAG_NAME="${version}+${commit}"
   ;;
   debug|nightly)
-    version=$(cat /target/lapce.version)
+    version=$(cat /target/planck.version)
     date=$(date +%Y%m%d%H%M)
     RELEASE_TAG_NAME="${version}+${date}"
   ;;
@@ -193,10 +193,10 @@ cat <<- EOL > debian/control
 	Maintainer: Jakub Panek <me+debian@panekj.dev>
 	Architecture: ${_PACKAGE_ARCHITECTURE}
 	Description: Lightning-fast and Powerful Code Editor
-	Source: https://lapce.dev
+	Source: https://github.com/alejandroqh/planck
 EOL
 
-depends=$(dpkg-shlibdeps -O -e usr/bin/lapce)
+depends=$(dpkg-shlibdeps -O -e usr/bin/planck)
 depends=$(echo "${depends}" | sed 's/shlibs:Depends=//')
 echo "Depends: ${depends}" >> debian/control
 mv debian DEBIAN

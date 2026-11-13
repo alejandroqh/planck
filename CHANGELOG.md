@@ -1,5 +1,18 @@
 # Changelog
 
+## Planck 0.1.0 (unreleased)
+
+Planck is forked from Lapce 0.4.6.
+
+### Changes
+- Renamed Lapce to Planck: crates (`planck-app`, `planck-core`, `planck-proxy`, `planck-rpc`), binaries (`planck`, `planck-proxy`), app ID `io.github.alejandroqh.planck`
+- Planck uses its own config directory and does not read Lapce settings
+- Theme color keys renamed from `lapce.*` to `planck.*`
+
+---
+
+# Lapce changelog (before the fork)
+
 ## Unreleased
 
 ### Features/Changes

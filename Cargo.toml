@@ -1,34 +1,34 @@
 [package]
-name         = "lapce"
+name         = "planck"
 version      = { workspace = true }
 authors      = { workspace = true }
 edition      = { workspace = true }
 license      = { workspace = true }
 rust-version = { workspace = true }
-default-run  = "lapce"
+default-run  = "planck"
 
 [dependencies]
-lapce-app   = { path = "./lapce-app" }
-lapce-proxy = { path = "./lapce-proxy" }
+planck-app   = { path = "./planck-app" }
+planck-proxy = { path = "./planck-proxy" }
 
 [[bin]]
-name = "lapce"
-path = "lapce-app/src/bin/lapce.rs"
+name = "planck"
+path = "planck-app/src/bin/planck.rs"
 
 [[bin]]
-name = "lapce-proxy"
-path = "lapce-proxy/src/bin/lapce-proxy.rs"
+name = "planck-proxy"
+path = "planck-proxy/src/bin/planck-proxy.rs"
 
 [workspace]
-members = ["lapce-app", "lapce-proxy", "lapce-rpc", "lapce-core"]
+members = ["planck-app", "planck-proxy", "planck-rpc", "planck-core"]
 
 [workspace.package]
-version      = "0.4.6"
+version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.98.0"
 license      = "Apache-2.0"
-homepage     = "https://lapce.dev"
-authors      = ["Dongdong Zhou <dzhou121@gmail.com>"]
+homepage     = "https://github.com/alejandroqh/planck"
+authors      = ["Alejandro Quintanar", "Dongdong Zhou <dzhou121@gmail.com>"]
 
 [workspace.dependencies]
 anyhow            = { version = "1.0" }
@@ -72,9 +72,9 @@ psp-types = { git = "https://github.com/lapce/psp-types", rev = "f7fea28f59e7b2d
 
 lapce-xi-rope = { version = "0.3.2", features = ["serde"] }
 
-lapce-core  = { path = "./lapce-core" }
-lapce-rpc   = { path = "./lapce-rpc" }
-lapce-proxy = { path = "./lapce-proxy" }
+planck-core  = { path = "./planck-core" }
+planck-rpc   = { path = "./planck-rpc" }
+planck-proxy = { path = "./planck-proxy" }
 
 [workspace.dependencies.floem]
 # path = "../floem"
@@ -132,13 +132,13 @@ lto           = true
 codegen-units = 1
 
 # A profile which compiles all (non-workspace) dependencies in release mode
-# but Lapce code in dev mode. This gives a good debugging experience for your
+# but Planck code in dev mode. This gives a good debugging experience for your
 # code and fast performance of other people's code. After the initial
 # build subsequent ones are as fast as dev mode builds.
 # See https://doc.rust-lang.org/cargo/reference/profiles.html
 # To use this profile:
 #   cargo build --profile fastdev
-#   cargo run --profile fastdev --bin lapce
+#   cargo run --profile fastdev --bin planck
 [profile.fastdev.package."*"]
 opt-level = 3
 

@@ -7,9 +7,9 @@ assignees: ''
 
 ---
 
-## Lapce Version
+## Planck Version
 
-The Lapce version you are using, which can be found in "About Lapce" at the top right settings icon. 
+The Planck version you are using, which can be found in "About Planck" at the top right settings icon. 
 
 ## System information
 

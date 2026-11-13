@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>io.github.alejandroqh.planck</id>
+    <name>Planck</name>
+    <developer_name>Planck contributors</developer_name>
+    <summary>Fast, focused code editor written in Rust</summary>
+    <metadata_license>MIT</metadata_license>
+    <project_license>Apache-2.0</project_license>
+    <url type="homepage">https://github.com/alejandroqh/planck</url>
+    <url type="bugtracker">https://github.com/alejandroqh/planck/issues</url>
+    <url type="help">https://github.com/alejandroqh/planck</url>
+    <categories>
+        <category>IDE</category>
+        <category>Development</category>
+    </categories>
+    <description>
+        <p>
+            Planck is an open source code editor written in Rust with native GUI and GPU rendering. It is derived from the Lapce editor.
+        </p>
+        <p>Features:</p>
+        <ul>
+            <li>Modal Editing (Vim like) support as first class citizen (can be turned off as well)</li>
+            <li>Built-in LSP (Language Server Protocol) support: configure a language server command and get completion, diagnostics and code actions</li>
+            <li>Built-in terminal, so you can execute commands in your workspace, without leaving Planck.</li>
+        </ul>
+    </description>
+    <content_rating type="oars-1.1" />
+    <launchable type="desktop-id">io.github.alejandroqh.planck.desktop</launchable>
+    <screenshots>
+        <screenshot type="default" environment="plasma">
+            <caption>Rust source code file opened in Planck</caption>
+            <image type="source" width="1000" height="700">https://raw.githubusercontent.com/alejandroqh/planck/master/extra/images/linux/code-file-with-highlight.png</image>
+        </screenshot>
+    </screenshots>
+    <releases>
+        <release version="0.1.0" date="2026-11-13" type="development">
+            <description>
+                <p>First Planck release, forked from Lapce 0.4.6.</p>
+            </description>
+        </release>
+    </releases>
+</component>

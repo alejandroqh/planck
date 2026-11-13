@@ -9,19 +9,19 @@ test_cmd() {
 }
 
 # proxy version
-lapce_new_ver="${1}"
+planck_new_ver="${1}"
 # proxy directory
 # eval to resolve '~' into proper user dir
-eval lapce_dir="'${2}'"
+eval planck_dir="'${2}'"
 
-case "${lapce_new_ver}" in
+case "${planck_new_ver}" in
   v*)
-    lapce_new_version=$(echo "${lapce_new_ver}" | cut -d'v' -f2)
-    lapce_new_ver_tag="${lapce_new_ver}"
+    planck_new_version=$(echo "${planck_new_ver}" | cut -d'v' -f2)
+    planck_new_ver_tag="${planck_new_ver}"
   ;;
   nightly*)
-    lapce_new_version="${lapce_new_ver}"
-    lapce_new_ver_tag=$(echo ${lapce_new_ver} | cut -d '-' -f1)
+    planck_new_version="${planck_new_ver}"
+    planck_new_ver_tag=$(echo ${planck_new_ver} | cut -d '-' -f1)
   ;;
   *)
     printf 'Unknown version\n'
@@ -29,17 +29,17 @@ case "${lapce_new_ver}" in
   ;;
 esac
 
-if [ -e "${lapce_dir}/lapce" ]; then
-  lapce_installed_ver=$("${lapce_dir}/lapce" --version | cut -d' ' -f2)
+if [ -e "${planck_dir}/planck" ]; then
+  planck_installed_ver=$("${planck_dir}/planck" --version | cut -d' ' -f2)
 
-  printf '[DEBUG]: Current proxy version: %s\n' "${lapce_installed_ver}"
-  printf '[DEBUG]: New proxy version: %s\n' "${lapce_new_version}"
-  if [ "${lapce_installed_ver}" = "${lapce_new_version}" ]; then
+  printf '[DEBUG]: Current proxy version: %s\n' "${planck_installed_ver}"
+  printf '[DEBUG]: New proxy version: %s\n' "${planck_new_version}"
+  if [ "${planck_installed_ver}" = "${planck_new_version}" ]; then
     printf 'Proxy already exists\n'
     exit 0
   else
     printf 'Proxy outdated. Replacing proxy\n'
-    rm "${lapce_dir}/lapce"
+    rm "${planck_dir}/planck"
   fi
 fi
 
@@ -71,34 +71,34 @@ case $(uname -m) in
   ;;
 esac
 
-lapce_download_url="https://github.com/lapce/lapce/releases/download/${lapce_new_ver_tag}/lapce-proxy-${os_name}-${arch_name}.gz"
+planck_download_url="https://github.com/alejandroqh/planck/releases/download/${planck_new_ver_tag}/planck-proxy-${os_name}-${arch_name}.gz"
 
-printf 'Creating "%s"\n' "${lapce_dir}"
-mkdir -p "${lapce_dir}"
-cd "${lapce_dir}"
+printf 'Creating "%s"\n' "${planck_dir}"
+mkdir -p "${planck_dir}"
+cd "${planck_dir}"
 
 if test_cmd 'curl'; then
   # How old curl has these options? we'll find out
   printf 'Downloading using curl\n'
-  curl --proto '=https' --tlsv1.2 -LfS -O "${lapce_download_url}"
-  # curl --proto '=https' --tlsv1.2 -LZfS -o "${tmp_dir}/lapce-proxy-${os_name}-${arch_name}.gz" "${lapce_download_url}"
+  curl --proto '=https' --tlsv1.2 -LfS -O "${planck_download_url}"
+  # curl --proto '=https' --tlsv1.2 -LZfS -o "${tmp_dir}/planck-proxy-${os_name}-${arch_name}.gz" "${planck_download_url}"
 elif test_cmd 'wget'; then
   printf 'Downloading using wget\n'
-  wget "${lapce_download_url}"
+  wget "${planck_download_url}"
 else
   printf 'curl/wget not found, failed to download proxy\n'
   exit 1
 fi
 
 printf 'Decompressing gzip\n'
-gzip -df "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}.gz"
+gzip -df "${planck_dir}/planck-proxy-${os_name}-${arch_name}.gz"
 
 printf 'Renaming proxy \n'
-mv -v "${lapce_dir}/lapce-proxy-${os_name}-${arch_name}" "${lapce_dir}/lapce"
+mv -v "${planck_dir}/planck-proxy-${os_name}-${arch_name}" "${planck_dir}/planck"
 
 printf 'Making it executable\n'
-chmod +x "${lapce_dir}/lapce"
+chmod +x "${planck_dir}/planck"
 
-printf 'lapce-proxy installed\n'
+printf 'planck-proxy installed\n'
 
 exit 0
