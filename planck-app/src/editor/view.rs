@@ -64,7 +64,7 @@ use crate::{
     workspace::PlanckWorkspace,
 };
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StickyHeaderInfo {
     pub sticky_lines: Vec<usize>,
     pub last_sticky_should_scroll: bool,
@@ -1047,9 +1047,16 @@ impl View for EditorView {
         _cx: &mut floem::context::UpdateCx,
         state: Box<dyn std::any::Any>,
     ) {
-        if let Ok(state) = state.downcast() {
-            self.editor.sticky_header_info.set(*state);
-            self.id.request_layout();
+        if let Ok(state) = state.downcast::<StickyHeaderInfo>() {
+            // sticky headers are painted over the editor and never change its size
+            if self
+                .editor
+                .sticky_header_info
+                .with_untracked(|i| *i != *state)
+            {
+                self.editor.sticky_header_info.set(*state);
+                self.id.request_paint();
+            }
         }
     }
 
