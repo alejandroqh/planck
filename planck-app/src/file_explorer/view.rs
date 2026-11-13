@@ -88,8 +88,8 @@ pub fn file_explorer_panel(
         .debug_name("File Explorer Panel")
 }
 
-/// Section header naming what is open: a space (accent pill, name, folder count),
-/// a folder (neutral pill, name), or nothing yet.
+/// Section header naming what is open: a space (italic kind, name, folder count),
+/// a folder (italic kind, name), or nothing yet.
 fn file_explorer_header(
     workspace: &PlanckWorkspace,
     config: ReadSignal<Arc<PlanckConfig>>,
@@ -98,9 +98,9 @@ fn file_explorer_header(
     let (kind, name, detail) = if is_space {
         let n = workspace.folders.len();
         let plural = if n == 1 { "" } else { "s" };
-        ("SPACE", workspace.display(), format!("{n} folder{plural}"))
+        ("Space", workspace.display(), format!("{n} folder{plural}"))
     } else if workspace.path.is_some() {
-        ("FOLDER", workspace.display(), String::new())
+        ("Folder", workspace.display(), String::new())
     } else {
         ("", None, String::new())
     };
@@ -109,22 +109,9 @@ fn file_explorer_header(
 
     stack((
         label(move || kind.to_string()).style(move |s| {
-            let config = config.get();
-            let color = if is_space {
-                config.color(PlanckColor::PLANCK_TAB_ACTIVE_UNDERLINE)
-            } else {
-                config.color(PlanckColor::PANEL_FOREGROUND_DIM)
-            };
-            s.font_size(config.ui.font_size() as f32 - 3.0)
-                .font_bold()
-                .line_height(1.6)
-                .padding_horiz(5.0)
+            s.font_style(FontStyle::Italic)
                 .margin_right(8.0)
-                .border(1.0)
-                .border_radius(4.0)
-                .border_color(color.multiply_alpha(0.6))
-                .background(color.multiply_alpha(0.12))
-                .color(color)
+                .color(config.get().color(PlanckColor::PANEL_FOREGROUND_DIM))
                 .selectable(false)
                 .apply_if(kind.is_empty(), |s| s.hide())
         }),
