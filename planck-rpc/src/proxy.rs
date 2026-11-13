@@ -28,7 +28,7 @@ use crate::{
     file::{FileNodeItem, PathObject},
     file_line::FileLine,
     plugin::{LspServers, PluginId},
-    source_control::FileDiff,
+    source_control::{BlameHunk, FileDiff},
     style::SemanticStyles,
     terminal::{TermId, TerminalProfile},
 };
@@ -101,6 +101,10 @@ pub enum ProxyRequest {
     },
     GitGetRemoteFileUrl {
         file: PathBuf,
+    },
+    /// Blame of the open buffer's current content, uncommitted edits included.
+    GitBlame {
+        path: PathBuf,
     },
     GetReferences {
         path: PathBuf,
@@ -300,6 +304,9 @@ pub enum ProxyNotification {
 pub enum ProxyResponse {
     GitGetRemoteFileUrl {
         file_url: String,
+    },
+    GitBlameResponse {
+        hunks: Vec<BlameHunk>,
     },
     NewBufferResponse {
         content: String,
@@ -977,6 +984,10 @@ impl ProxyRpcHandler {
         f: impl ProxyCallback + 'static,
     ) {
         self.request_async(ProxyRequest::GitGetRemoteFileUrl { file }, f);
+    }
+
+    pub fn git_blame(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
+        self.request_async(ProxyRequest::GitBlame { path }, f);
     }
 
     pub fn rename(

@@ -189,6 +189,10 @@ pub struct EditorConfig {
     )]
     pub error_lens_font_size: usize,
     #[field_names(
+        desc = "Show who last changed the cursor's line, when, and the commit message at the end of the line"
+    )]
+    pub current_line_blame: bool,
+    #[field_names(
         desc = "If the editor should display the completion item as phantom text"
     )]
     pub enable_completion_lens: bool,

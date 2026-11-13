@@ -48,6 +48,7 @@ only-render-error-styling = true
 error-lens-end-of-line = true
 error-lens-font-family = ""
 error-lens-font-size = 0
+current-line-blame = true
 error-lens-multiline = false
 enable-completion-lens = false
 enable-inline-completion = true

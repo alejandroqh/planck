@@ -18,6 +18,7 @@ use floem::{
     },
     style::{CursorColor, CursorStyle, Style, TextColor},
     taffy::prelude::NodeId,
+    text::{Attrs, AttrsList, FamilyOwned, LineHeightValue, TextLayout},
     views::{
         Decorators, clip, container, dyn_stack,
         editor::{
@@ -46,7 +47,7 @@ use planck_core::{
     cursor::{CursorAffinity, CursorMode},
     selection::SelRegion,
 };
-use planck_rpc::plugin::PluginId;
+use planck_rpc::{plugin::PluginId, source_control::BlameCommit};
 
 use super::{
     DocSignal, EditorData, gutter::editor_gutter_view, minimap::minimap_view,
@@ -226,6 +227,11 @@ pub fn editor_view(
     create_effect(move |_| {
         let highlights = doc.with(|doc| doc.highlights);
         highlights.track();
+        id.request_paint();
+    });
+
+    create_effect(move |_| {
+        doc.with(|doc| doc.line_blame).track();
         id.request_paint();
     });
 
@@ -452,6 +458,58 @@ impl EditorView {
                 }
             }
         });
+    }
+
+    /// GitLens style blame of the cursor's line, drawn after the line's end.
+    fn paint_line_blame(
+        &self,
+        cx: &mut PaintCx,
+        screen_lines: &ScreenLines,
+        config: &PlanckConfig,
+    ) {
+        if !config.editor.current_line_blame || !self.is_active.get_untracked() {
+            return;
+        }
+        let ed = &self.editor.editor;
+        let doc = self.editor.doc();
+        let offset = self.editor.cursor().with_untracked(|c| c.offset());
+        let (line, rev) = doc
+            .buffer
+            .with_untracked(|b| (b.line_of_offset(offset), b.rev()));
+        // Hidden while the blame is older than the buffer, until edits pause.
+        let Some(text) = doc.line_blame.with_untracked(|blame| {
+            let (_, hunks) = blame.as_ref().filter(|(r, _)| *r == rev)?;
+            let hunk = hunks.iter().find(|h| {
+                (h.start_line..h.start_line + h.line_count).contains(&line)
+            })?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as i64);
+            Some(blame_text(hunk.commit.as_ref(), now))
+        }) else {
+            return;
+        };
+
+        let layout = ed.text_layout(line);
+        let Some(end_x) = layout.text.layout_runs().last().map(|run| run.line_w)
+        else {
+            return;
+        };
+        let last_vline = RVLine::new(line, layout.line_count().saturating_sub(1));
+        let Some(info) = screen_lines.info(last_vline) else {
+            return;
+        };
+
+        let family: Vec<FamilyOwned> =
+            FamilyOwned::parse_list(&config.editor.font_family).collect();
+        let attrs = Attrs::new()
+            .color(config.color(PlanckColor::EDITOR_DIM))
+            .family(&family)
+            .font_size(config.editor.font_size() as f32)
+            .line_height(LineHeightValue::Px(config.editor.line_height() as f32));
+        let mut blame = TextLayout::new();
+        blame.set_text(&format!("    {text}"), AttrsList::new(attrs), None);
+        cx.draw_text(&blame, Point::new(end_x as f64, info.vline_y));
     }
 
     fn paint_find(&self, cx: &mut PaintCx, screen_lines: &ScreenLines) {
@@ -1175,9 +1233,39 @@ impl View for EditorView {
             &screen_lines,
         );
         let screen_lines = ed.screen_lines.get_untracked();
+        self.paint_line_blame(cx, &screen_lines, &config);
+        let screen_lines = ed.screen_lines.get_untracked();
         self.paint_sticky_headers(cx, viewport, &screen_lines);
         self.paint_scroll_bar(cx, viewport, is_local, config);
     }
+}
+
+/// GitLens style annotation, like "Ada, 3 days ago • Fix the parser".
+fn blame_text(commit: Option<&BlameCommit>, now: i64) -> String {
+    let Some(commit) = commit else {
+        return "You • Uncommitted changes".to_string();
+    };
+    let ago = (now - commit.time).max(0);
+    let units = [
+        (31_536_000, "year"),
+        (2_592_000, "month"),
+        (604_800, "week"),
+        (86_400, "day"),
+        (3_600, "hour"),
+        (60, "minute"),
+    ];
+    let when = match units.iter().find(|(secs, _)| ago >= *secs) {
+        None => "just now".to_string(),
+        Some((secs, unit)) => match ago / secs {
+            1 => format!("1 {unit} ago"),
+            n => format!("{n} {unit}s ago"),
+        },
+    };
+    let mut summary: String = commit.summary.chars().take(50).collect();
+    if summary.len() < commit.summary.len() {
+        summary.push('…');
+    }
+    format!("{}, {when} • {summary}", commit.author)
 }
 
 fn get_sticky_header_info(
@@ -2477,4 +2565,39 @@ pub fn changes_colors_all(
     }
 
     colors
+}
+
+#[cfg(test)]
+mod tests {
+    use planck_rpc::source_control::BlameCommit;
+
+    use super::blame_text;
+
+    #[test]
+    fn blame_text_reads_like_gitlens() {
+        let commit = |time, summary: &str| BlameCommit {
+            author: "Ada".to_string(),
+            time,
+            summary: summary.to_string(),
+        };
+        let now = 1_000_000_000;
+        assert_eq!(blame_text(None, now), "You • Uncommitted changes");
+        assert_eq!(
+            blame_text(Some(&commit(now - 30, "fix")), now),
+            "Ada, just now • fix"
+        );
+        assert_eq!(
+            blame_text(Some(&commit(now - 3_600, "fix")), now),
+            "Ada, 1 hour ago • fix"
+        );
+        assert_eq!(
+            blame_text(Some(&commit(now - 3 * 86_400, "fix")), now),
+            "Ada, 3 days ago • fix"
+        );
+        let long = "a".repeat(60);
+        assert_eq!(
+            blame_text(Some(&commit(now - 2 * 31_536_000, &long)), now),
+            format!("Ada, 2 years ago • {}…", "a".repeat(50))
+        );
+    }
 }

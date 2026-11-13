@@ -947,6 +947,16 @@ impl WindowTabData {
                 self.main_split.export_theme();
             }
             ToggleInlayHints => {}
+            ToggleLineBlame => {
+                let enabled =
+                    self.common.config.get_untracked().editor.current_line_blame;
+                PlanckConfig::update_file(
+                    None,
+                    "editor",
+                    "current-line-blame",
+                    toml_edit::Value::from(!enabled),
+                );
+            }
 
             // ==== Window ====
             ReloadWindow => {
@@ -2105,6 +2115,7 @@ impl WindowTabData {
                 let docs = self.main_split.docs.get_untracked();
                 for (_, doc) in docs {
                     doc.retrieve_head();
+                    doc.refresh_blame();
                 }
             }
             CoreNotification::CompletionResponse {

@@ -68,6 +68,7 @@ use planck_rpc::{
     buffer::BufferId,
     plugin::PluginId,
     proxy::ProxyResponse,
+    source_control::BlameHunk,
     style::{LineStyle, LineStyles, Style},
 };
 use serde::{Deserialize, Serialize};
@@ -262,6 +263,9 @@ pub struct Doc {
 
     get_highlights_status: RwSignal<DocumentHighlightsStatus>,
     pub highlights: RwSignal<Option<Vec<DocumentHighlight>>>,
+
+    /// Git blame of the buffer at the revision it was computed for.
+    pub line_blame: RwSignal<Option<(u64, Vec<BlameHunk>)>>,
 }
 
 impl Doc {
@@ -312,6 +316,7 @@ impl Doc {
             get_highlights_status: cx
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
+            line_blame: cx.create_rw_signal(None),
         }
     }
 
@@ -366,6 +371,7 @@ impl Doc {
             get_highlights_status: cx
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
+            line_blame: cx.create_rw_signal(None),
         }
     }
 
@@ -420,6 +426,7 @@ impl Doc {
             get_highlights_status: cx
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
+            line_blame: cx.create_rw_signal(None),
         }
     }
 
@@ -718,6 +725,7 @@ impl Doc {
             self.get_code_lens();
             self.get_document_symbol();
             self.get_folding_range();
+            self.refresh_blame();
         });
     }
 
@@ -755,6 +763,33 @@ impl Doc {
                 .collect::<Vec<_>>()
         });
         self.do_raw_edit(&edits, EditType::Completion);
+    }
+
+    /// Ask the proxy for the buffer's git blame once edits pause.
+    pub fn refresh_blame(&self) {
+        let Some(path) = self.content.with_untracked(|c| c.path().cloned()) else {
+            return;
+        };
+        let rev = self.rev();
+        let doc = self.clone();
+        exec_after(Duration::from_millis(500), move |_| {
+            let current_rev = doc
+                .buffer
+                .try_with_untracked(|b| b.as_ref().map(|b| b.rev()));
+            if current_rev != Some(rev) {
+                return;
+            }
+            let buffer = doc.buffer;
+            let line_blame = doc.line_blame;
+            let send = create_ext_action(doc.scope, move |result| {
+                if let Ok(ProxyResponse::GitBlameResponse { hunks }) = result
+                    && buffer.with_untracked(|b| b.rev()) == rev
+                {
+                    line_blame.set(Some((rev, hunks)));
+                }
+            });
+            doc.common.proxy.git_blame(path, send);
+        });
     }
 
     fn check_auto_save(&self) {

@@ -10,6 +10,25 @@ pub struct DiffInfo {
     pub diffs: Vec<FileDiff>,
 }
 
+/// Lines of a buffer last changed by the same commit, or not committed yet.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlameHunk {
+    /// First line, 0 based.
+    pub start_line: usize,
+    pub line_count: usize,
+    /// None for uncommitted lines.
+    pub commit: Option<BlameCommit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlameCommit {
+    /// "You" when the author is the repository's user.
+    pub author: String,
+    /// Author time in seconds since the Unix epoch.
+    pub time: i64,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum FileDiff {
     Modified(PathBuf),

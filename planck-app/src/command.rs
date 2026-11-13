@@ -532,6 +532,10 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Toggle Inlay Hints")]
     ToggleInlayHints,
 
+    #[strum(serialize = "toggle_line_blame")]
+    #[strum(message = "Toggle Line Blame")]
+    ToggleLineBlame,
+
     #[strum(serialize = "restart_to_update")]
     RestartToUpdate,
 
