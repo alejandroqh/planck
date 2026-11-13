@@ -47,7 +47,7 @@ use planck_core::{
     buffer::{
         Buffer, InvalLines,
         diff::{DiffLines, rope_diff},
-        rope_text::RopeText,
+        rope_text::{RopeText, RopeTextVal},
     },
     char_buffer::CharBuffer,
     command::EditCommand,
@@ -1080,9 +1080,10 @@ impl Doc {
                 return;
             };
 
-        let (buffer, rev, len) = self
-            .buffer
-            .with_untracked(|b| (b.clone(), b.rev(), b.len()));
+        // Only the text is needed, cloning the Buffer would also copy its undo history.
+        let (buffer, rev, len) = self.buffer.with_untracked(|b| {
+            (RopeTextVal::new(b.text().clone()), b.rev(), b.len())
+        });
 
         let doc = self.clone();
         let send = create_ext_action(self.scope, move |hints| {
