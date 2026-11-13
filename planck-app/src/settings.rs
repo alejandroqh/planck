@@ -89,8 +89,9 @@ struct SettingsData {
     items: RwSignal<im::Vector<SettingsItem>>,
     kinds: RwSignal<im::Vector<(String, RwSignal<Point>)>>,
     filtered_items: RwSignal<im::Vector<SettingsItem>>,
-    /// Font family settings (`kind.field`) whose "Mono fonts only" box is unticked.
-    all_fonts_fields: RwSignal<HashSet<String>>,
+    /// Font family settings (`kind.field`) whose "Mono fonts only" box was
+    /// toggled away from its default.
+    mono_toggled_fields: RwSignal<HashSet<String>>,
     common: Rc<CommonData>,
 }
 
@@ -242,7 +243,7 @@ impl SettingsData {
             filtered_items,
             items,
             kinds,
-            all_fonts_fields: cx.create_rw_signal(HashSet::new()),
+            mono_toggled_fields: cx.create_rw_signal(HashSet::new()),
             common,
         }
     }
@@ -461,7 +462,7 @@ fn settings_item_view(
             if !item.header && item.field.ends_with("font-family") {
                 return font_family_view(
                     &item,
-                    settings_data.all_fonts_fields,
+                    settings_data.mono_toggled_fields,
                     settings_data.common.window_common.size,
                     config,
                 )
@@ -1215,14 +1216,20 @@ fn system_font_families(mono_only: bool) -> Vec<String> {
 /// A dropdown of installed fonts with a "Mono fonts only" filter.
 fn font_family_view(
     item: &SettingsItem,
-    all_fonts_fields: RwSignal<HashSet<String>>,
+    mono_toggled_fields: RwSignal<HashSet<String>>,
     window_size: RwSignal<Size>,
     config: ReadSignal<Arc<PlanckConfig>>,
 ) -> impl View + use<> {
     let key = format!("{}.{}", item.kind, item.field);
+    // UI text reads better in proportional fonts, so only code fonts start
+    // filtered to monospace.
+    let mono_by_default = item.kind != "ui";
     let mono_only = {
         let key = key.clone();
-        create_memo(move |_| !all_fonts_fields.with(|fields| fields.contains(&key)))
+        create_memo(move |_| {
+            mono_by_default
+                != mono_toggled_fields.with(|fields| fields.contains(&key))
+        })
     };
 
     // The editor font defaults to the generic "monospace" family; every other
@@ -1258,7 +1265,7 @@ fn font_family_view(
                 .style(|s| s.selectable(false)),
         ))
         .on_click_stop(move |_| {
-            all_fonts_fields.update(|fields| {
+            mono_toggled_fields.update(|fields| {
                 if !fields.remove(&key) {
                     fields.insert(key.clone());
                 }
