@@ -110,6 +110,7 @@ impl std::fmt::Display for PlanckWorkspace {
 pub fn read_space_folders(space: &Path) -> Result<Vec<SpaceFolder>> {
     let file: SpaceFile = toml::from_str(&std::fs::read_to_string(space)?)?;
     let dir = space.parent().unwrap_or(Path::new(""));
+    let mut seen = std::collections::HashSet::new();
     Ok(file
         .folders
         .into_iter()
@@ -117,6 +118,8 @@ pub fn read_space_folders(space: &Path) -> Result<Vec<SpaceFolder>> {
             path: resolve_space_path(dir, &f.path),
             name: f.name,
         })
+        // A folder listed twice would show twice in the explorer.
+        .filter(|f| seen.insert(f.path.clone()))
         .collect())
 }
 
@@ -156,8 +159,18 @@ pub fn add_space_folder(space: &Path, folder: &Path) -> Result<()> {
         .as_array_of_tables_mut()
         .ok_or_else(|| anyhow::anyhow!("`folders` is not an array of tables"))?;
 
-    // Folders next to the space file are stored relative so the space can move with them.
     let dir = space.parent().unwrap_or(Path::new(""));
+    let resolved = resolve_space_path(dir, folder);
+    let listed = folders.iter().any(|t| {
+        t.get("path")
+            .and_then(|p| p.as_str())
+            .is_some_and(|p| resolve_space_path(dir, Path::new(p)) == resolved)
+    });
+    if listed {
+        return Ok(());
+    }
+
+    // Folders next to the space file are stored relative so the space can move with them.
     let stored = match folder.strip_prefix(dir) {
         Ok(p) if p.as_os_str().is_empty() => Path::new("."),
         Ok(p) => p,
@@ -210,10 +223,12 @@ mod tests {
 
         add_space_folder(&space, &dir.join("api")).unwrap();
         add_space_folder(&space, Path::new("/elsewhere/web")).unwrap();
+        add_space_folder(&space, &dir.join("api")).unwrap();
 
         let content = std::fs::read_to_string(&space).unwrap();
         assert!(content.contains("# keep me") && content.contains("tab-width = 2"));
         assert!(content.contains("path = \"api\""));
+        assert_eq!(content.matches("[[folders]]").count(), 2, "{content}");
 
         let ws = PlanckWorkspace::from_path(space.clone()).load_space();
         assert_eq!(ws.folders.len(), 2);
