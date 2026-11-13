@@ -24,6 +24,11 @@ use crate::{
 pub struct SymbolData {
     pub path: PathBuf,
     pub file: RwSignal<SymbolInformationItemData>,
+    /// Owns every signal of this response.
+    pub scope: Scope,
+    /// Previous response's scope, kept alive one more generation so rows still
+    /// on screen never read a disposed signal.
+    pub prev_scope: Option<Scope>,
 }
 
 impl SymbolData {
@@ -56,7 +61,12 @@ impl SymbolData {
             open: cx.create_rw_signal(true),
             children: items,
         });
-        Self { path, file }
+        Self {
+            path,
+            file,
+            scope: cx,
+            prev_scope: None,
+        }
     }
     fn get_children(
         &self,

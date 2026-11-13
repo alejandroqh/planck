@@ -1032,6 +1032,7 @@ impl Doc {
                         return;
                     }
                     if let Ok(ProxyResponse::GetDocumentSymbols { resp }) = result {
+                        let cx = cx.create_child();
                         let items: Vec<RwSignal<SymbolInformationItemData>> =
                             match resp {
                                 DocumentSymbolResponse::Flat(_symbols) => {
@@ -1046,9 +1047,15 @@ impl Doc {
                                     })
                                     .collect(),
                             };
-                        let symbol_new = Some(SymbolData::new(items, path, cx));
+                        let mut symbol_new = SymbolData::new(items, path, cx);
                         doc.document_symbol_data.update(|symbol| {
-                            *symbol = symbol_new;
+                            if let Some(old) = symbol.take() {
+                                if let Some(prev) = old.prev_scope {
+                                    prev.dispose();
+                                }
+                                symbol_new.prev_scope = Some(old.scope);
+                            }
+                            *symbol = Some(symbol_new);
                         });
                     }
                 }
