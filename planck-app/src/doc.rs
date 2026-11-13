@@ -951,7 +951,7 @@ impl Doc {
                     send(None);
                     return;
                 }
-                std::thread::spawn(move || {
+                rayon::spawn(move || {
                     let mut styles_span = SpansBuilder::new(len);
                     for style in styles.styles {
                         if atomic_rev.load(atomic::Ordering::Acquire) != rev {
