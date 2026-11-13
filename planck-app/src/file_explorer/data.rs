@@ -31,12 +31,15 @@ use planck_rpc::{
 };
 
 use crate::{
-    command::{CommandExecuted, CommandKind, InternalCommand, PlanckCommand},
+    command::{
+        CommandExecuted, CommandKind, InternalCommand, PlanckCommand, WindowCommand,
+    },
     config::PlanckConfig,
     editor::EditorData,
     keypress::{KeyPressFocus, condition::Condition},
     main_split::Editors,
     window_tab::CommonData,
+    workspace::{PlanckWorkspace, remove_space_folder},
 };
 
 enum RenamedPath {
@@ -48,9 +51,30 @@ enum RenamedPath {
     },
 }
 
+/// The root folder whose tree holds `path`.
+// shortcut: with nested space folders the innermost root wins, so the outer tree cannot
+// expand into the inner folder; track the root per row if nested folders matter.
+fn root_of<'a>(roots: &'a [FileNodeItem], path: &Path) -> Option<&'a FileNodeItem> {
+    roots
+        .iter()
+        .filter(|r| path.starts_with(&r.path))
+        .max_by_key(|r| r.path.components().count())
+}
+
+fn root_of_mut<'a>(
+    roots: &'a mut [FileNodeItem],
+    path: &Path,
+) -> Option<&'a mut FileNodeItem> {
+    roots
+        .iter_mut()
+        .filter(|r| path.starts_with(&r.path))
+        .max_by_key(|r| r.path.components().count())
+}
+
 #[derive(Clone, Debug)]
 pub struct FileExplorerData {
-    pub root: RwSignal<FileNodeItem>,
+    /// One tree per root folder: the space's folders, or the single open folder.
+    pub roots: RwSignal<Vec<FileNodeItem>>,
     pub naming: RwSignal<Naming>,
     pub naming_editor_data: EditorData,
     pub common: Rc<CommonData>,
@@ -123,19 +147,24 @@ impl KeyPressFocus for FileExplorerData {
 
 impl FileExplorerData {
     pub fn new(cx: Scope, editors: Editors, common: Rc<CommonData>) -> Self {
-        let path = common.workspace.path.clone().unwrap_or_default();
-        let root = cx.create_rw_signal(FileNodeItem {
-            path: path.clone(),
-            is_dir: true,
-            read: false,
-            open: false,
-            children: HashMap::new(),
-            children_open_count: 0,
-        });
+        let folders = common.workspace.folder_paths();
+        let roots = cx.create_rw_signal(
+            folders
+                .iter()
+                .map(|path| FileNodeItem {
+                    path: path.clone(),
+                    is_dir: true,
+                    read: false,
+                    open: false,
+                    children: HashMap::new(),
+                    children_open_count: 0,
+                })
+                .collect(),
+        );
         let naming = cx.create_rw_signal(Naming::None);
         let naming_editor_data = editors.make_local(cx, common.clone());
         let data = Self {
-            root,
+            roots,
             naming,
             naming_editor_data,
             common,
@@ -143,9 +172,8 @@ impl FileExplorerData {
             left_diff_path: cx.create_rw_signal(None),
             select: cx.create_rw_signal(None),
         };
-        if data.common.workspace.path.is_some() {
-            // only fill in the child files if there is open folder
-            data.toggle_expand(&path);
+        for path in &folders {
+            data.toggle_expand(path);
         }
         data
     }
@@ -176,17 +204,22 @@ impl FileExplorerData {
         }
     }
 
-    /// Reload the file explorer data via reading the root directory.  
+    /// Reload the file explorer data via reading the root directories.
     /// Note that this will not update immediately.
     pub fn reload(&self) {
-        let path = self.root.with_untracked(|root| root.path.clone());
-        self.read_dir(&path);
+        let paths: Vec<PathBuf> = self
+            .roots
+            .with_untracked(|roots| roots.iter().map(|r| r.path.clone()).collect());
+        for path in paths {
+            self.read_dir(&path);
+        }
     }
 
     /// Toggle whether the directory is expanded or not.  
     /// Does nothing if the path does not exist or is not a directory.
     pub fn toggle_expand(&self, path: &Path) {
-        let Some(Some(read)) = self.root.try_update(|root| {
+        let Some(Some(read)) = self.roots.try_update(|roots| {
+            let root = root_of_mut(roots, path)?;
             let read = if let Some(node) = root.get_file_node_mut(path) {
                 if !node.is_dir {
                     return None;
@@ -219,7 +252,7 @@ impl FileExplorerData {
     /// `done : FnOnce(was_read: bool)` is called when the operation is completed, whether success,
     /// failure, or ignored.
     pub fn read_dir_cb(&self, path: &Path, done: impl FnOnce(bool) + 'static) {
-        let root = self.root;
+        let roots = self.roots;
         let data = self.clone();
         let config = self.common.config;
         let send = {
@@ -231,7 +264,10 @@ impl FileExplorerData {
                     return;
                 };
 
-                root.update(|root| {
+                roots.update(|roots| {
+                    let Some(root) = root_of_mut(roots, &path) else {
+                        return;
+                    };
                     // Get the node for this path, which should already exist if we're calling
                     // read_dir on it.
                     if let Some(node) = root.get_file_node_mut(&path) {
@@ -289,8 +325,10 @@ impl FileExplorerData {
     /// Returns `true` if `path` exists in the file explorer tree and is a directory, `false`
     /// otherwise.
     fn is_dir(&self, path: &Path) -> bool {
-        self.root.with_untracked(|root| {
-            root.get_file_node(path).is_some_and(|node| node.is_dir)
+        self.roots.with_untracked(|roots| {
+            root_of(roots, path)
+                .and_then(|root| root.get_file_node(path))
+                .is_some_and(|node| node.is_dir)
         })
     }
 
@@ -439,8 +477,11 @@ impl FileExplorerData {
 
     pub fn reveal_in_file_tree(&self, path: PathBuf) {
         let done = self
-            .root
-            .try_update(|root| {
+            .roots
+            .try_update(|roots| {
+                let Some(root) = root_of_mut(roots, &path) else {
+                    return false;
+                };
                 // the directories in which the file are located are all read and opened
                 if root.get_file_node(&path).is_some() {
                     for current_path in path.ancestors() {
@@ -481,8 +522,18 @@ impl FileExplorerData {
             })
             .unwrap_or(false);
         if done {
-            let (found, line) =
-                self.root.with_untracked(|x| x.find_file_at_line(&path));
+            let (found, line) = self.roots.with_untracked(|roots| {
+                // Each root takes its own row plus its open descendants.
+                let mut offset = 0.0;
+                for root in roots {
+                    let (found, line) = root.find_file_at_line(&path);
+                    if found {
+                        return (true, offset + line);
+                    }
+                    offset += (root.children_open_count + 1) as f64;
+                }
+                (false, 0.0)
+            });
             if found {
                 self.scroll_to_line.set(Some(line));
                 self.select.set(Some(FileNodeViewKind::Path(path)));
@@ -519,19 +570,22 @@ impl FileExplorerData {
         // TODO: should we just pass is_dir into secondary click?
         let is_dir = self.is_dir(path);
 
-        let Some(workspace_path) = self.common.workspace.path.as_ref() else {
-            // There is no context menu if we are not in a workspace
+        let Some(root_path) = self
+            .roots
+            .with_untracked(|roots| root_of(roots, path).map(|r| r.path.clone()))
+        else {
+            // There is no context menu outside the workspace folders
             return;
         };
 
-        let is_workspace = path == workspace_path;
+        let is_workspace = path == root_path;
 
         let base_path_a = if is_dir {
             Some(path_a.clone())
         } else {
             path_a.parent().map(ToOwned::to_owned)
         };
-        let base_path_a = base_path_a.as_ref().unwrap_or(workspace_path);
+        let base_path_a = base_path_a.as_ref().unwrap_or(&root_path);
 
         let mut menu = Menu::new("");
 
@@ -643,6 +697,24 @@ impl FileExplorerData {
             }));
         }
 
+        if let (true, Some(space)) = (is_workspace, common.workspace.space.clone()) {
+            let path = path_a.clone();
+            let window_command = common.window_common.window_command;
+            menu = menu.entry(MenuItem::new("Remove Folder from Space").action(
+                move || {
+                    if let Err(err) = remove_space_folder(&space, &path) {
+                        tracing::error!(
+                            "failed to remove {path:?} from {space:?}: {err:?}"
+                        );
+                        return;
+                    }
+                    window_command.send(WindowCommand::SetWorkspace {
+                        workspace: PlanckWorkspace::from_path(space.clone()),
+                    });
+                },
+            ));
+        }
+
         menu = menu.separator();
 
         let path = path_a.clone();
@@ -652,13 +724,8 @@ impl FileExplorerData {
         }));
 
         let path = path_a.clone();
-        let workspace = common.workspace.clone();
         menu = menu.entry(MenuItem::new("Copy Relative Path").action(move || {
-            let relative_path = if let Some(workspace_path) = &workspace.path {
-                path.strip_prefix(workspace_path).unwrap_or(&path)
-            } else {
-                path.as_ref()
-            };
+            let relative_path = path.strip_prefix(&root_path).unwrap_or(&path);
 
             let mut clipboard = SystemClipboard::new();
             clipboard.put_string(relative_path.to_string_lossy());

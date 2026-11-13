@@ -113,14 +113,16 @@ pub fn read_space_folders(space: &Path) -> Result<Vec<SpaceFolder>> {
     Ok(file
         .folders
         .into_iter()
-        .map(|f| {
-            let path = dir.join(&f.path);
-            SpaceFolder {
-                path: std::fs::canonicalize(&path).unwrap_or(path),
-                name: f.name,
-            }
+        .map(|f| SpaceFolder {
+            path: resolve_space_path(dir, &f.path),
+            name: f.name,
         })
         .collect())
+}
+
+fn resolve_space_path(dir: &Path, path: &Path) -> PathBuf {
+    let path = dir.join(path);
+    std::fs::canonicalize(&path).unwrap_or(path)
 }
 
 /// The space file's `[settings]` table as TOML text, in the same shape as a settings.toml.
@@ -169,6 +171,24 @@ pub fn add_space_folder(space: &Path, folder: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Removes every `[[folders]]` entry that points at `folder`, keeping the rest of the file.
+pub fn remove_space_folder(space: &Path, folder: &Path) -> Result<()> {
+    let mut doc: toml_edit::Document = std::fs::read_to_string(space)?.parse()?;
+    let dir = space.parent().unwrap_or(Path::new(""));
+    if let Some(folders) = doc
+        .get_mut("folders")
+        .and_then(|f| f.as_array_of_tables_mut())
+    {
+        folders.retain(|t| {
+            t.get("path")
+                .and_then(|p| p.as_str())
+                .is_none_or(|p| resolve_space_path(dir, Path::new(p)) != folder)
+        });
+    }
+    std::fs::write(space, doc.to_string())?;
+    Ok(())
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WorkspaceInfo {
     pub split: SplitInfo,
@@ -203,6 +223,16 @@ mod tests {
         );
         assert_eq!(ws.folders[1].path, PathBuf::from("/elsewhere/web"));
         assert_eq!(ws.folder_paths().len(), 2);
+
+        remove_space_folder(&space, &ws.folders[0].path).unwrap();
+        let folders = read_space_folders(&space).unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].path, PathBuf::from("/elsewhere/web"));
+        assert!(
+            std::fs::read_to_string(&space)
+                .unwrap()
+                .contains("# keep me")
+        );
         assert_eq!(ws.display().as_deref(), Some("my"));
         assert_eq!(ws.to_string(), space.to_str().unwrap());
 

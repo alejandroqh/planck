@@ -165,14 +165,20 @@ fn file_node_text_view(
     match node.kind.clone() {
         FileNodeViewKind::Path(path) => {
             if node.is_root {
-                let file = path.clone();
-                container((
-                    label(move || {
-                        file.file_name()
-                            .map(|f| f.to_string_lossy().to_string())
-                            .unwrap_or_default()
+                // A space folder can carry its own display name.
+                let name = data
+                    .common
+                    .workspace
+                    .folders
+                    .iter()
+                    .find(|f| f.path == path)
+                    .and_then(|f| f.name.clone())
+                    .or_else(|| {
+                        path.file_name().map(|f| f.to_string_lossy().to_string())
                     })
-                    .style(move |s| {
+                    .unwrap_or_default();
+                container((
+                    label(move || name.clone()).style(move |s| {
                         s.height(ui_line_height.get())
                             .color(file_node_text_color(
                                 config,
@@ -309,7 +315,7 @@ fn file_explorer_view(
     data: FileExplorerData,
     source_control: SourceControlData,
 ) -> impl View {
-    let root = data.root;
+    let roots = data.roots;
     let ui_line_height = data.common.ui_line_height;
     let config = data.common.config;
     let naming = data.naming;
@@ -321,7 +327,7 @@ fn file_explorer_view(
 
     scroll(
         virtual_stack(
-            move || FileNodeVirtualList::new(root.get(), data.naming.get()),
+            move || FileNodeVirtualList::new(roots.get(), data.naming.get()),
             move |node| (node.kind.clone(), node.is_dir, node.open, node.level),
             move |node| {
                 let level = node.level;
