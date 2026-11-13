@@ -313,11 +313,12 @@ impl View for MinimapView {
         }
 
         let viewport_box = geometry.viewport_box(size.width);
-        let slider_color = config.color(PlanckColor::PLANCK_SCROLL_BAR);
+        // Muted text color, so the viewport box stands apart from the gray scroll bar.
+        let slider_color = config.color(PlanckColor::EDITOR_FOREGROUND);
         let slider_color = if self.hovered || self.drag_offset.is_some() {
-            slider_color
+            slider_color.multiply_alpha(0.2)
         } else {
-            slider_color.multiply_alpha(0.5)
+            slider_color.multiply_alpha(0.1)
         };
         cx.fill(&viewport_box, slider_color, 0.0);
 
