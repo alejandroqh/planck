@@ -96,6 +96,10 @@ pub struct EditorConfig {
         desc = "Show code context like functions and classes at the top of editor when scroll"
     )]
     pub sticky_header: bool,
+    #[field_names(desc = "Show a minimap of the file at the right side of the editor")]
+    pub minimap: bool,
+    #[field_names(desc = "Set the width of the minimap in pixels")]
+    pub minimap_width: usize,
     #[field_names(desc = "The number of pixels to show completion")]
     pub completion_width: usize,
     #[field_names(

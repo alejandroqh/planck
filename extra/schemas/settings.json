@@ -222,6 +222,13 @@
                 "sticky-header": {
                     "type": "boolean"
                 },
+                "minimap": {
+                    "type": "boolean"
+                },
+                "minimap-width": {
+                    "type": "integer",
+                    "minimum": 0
+                },
                 "completion-show-documentation": {
                     "type": "boolean"
                 },

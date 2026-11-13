@@ -91,6 +91,7 @@ use crate::{
 pub mod diff;
 pub mod gutter;
 pub mod location;
+pub mod minimap;
 pub mod view;
 
 #[derive(Clone, Debug)]

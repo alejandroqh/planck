@@ -48,7 +48,9 @@ use planck_core::{
 };
 use planck_rpc::plugin::PluginId;
 
-use super::{DocSignal, EditorData, gutter::editor_gutter_view};
+use super::{
+    DocSignal, EditorData, gutter::editor_gutter_view, minimap::minimap_view,
+};
 use crate::{
     app::clickable_icon,
     command::InternalCommand,
@@ -1325,6 +1327,16 @@ pub fn editor_container_view(
                 viewport,
             ),
             editor_content(editor, is_active),
+            minimap_view(editor.get_untracked()).style(move |s| {
+                let config = config.get();
+                s.height_full()
+                    .width(config.editor.minimap_width as f32)
+                    .flex_shrink(0.0_f32)
+                    .apply_if(
+                        !config.editor.minimap || !editor_view.get().is_normal(),
+                        |s| s.hide(),
+                    )
+            }),
             empty().style(move |s| {
                 let config = config.get();
                 s.absolute()
