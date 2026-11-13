@@ -69,22 +69,21 @@ impl ProxyHandler for Dispatcher {
         use ProxyNotification::*;
         match rpc {
             Initialize {
-                workspace,
+                folders,
                 lsp_servers,
                 window_id,
                 tab_id,
             } => {
                 self.window_id = window_id;
                 self.tab_id = tab_id;
-                self.workspace = workspace;
+                self.workspace = folders.first().cloned();
                 self.file_watcher.notify(FileWatchNotifier::new(
                     self.workspace.clone(),
                     self.core_rpc.clone(),
                     self.proxy_rpc.clone(),
                 ));
-                if let Some(workspace) = self.workspace.as_ref() {
-                    self.file_watcher
-                        .watch(workspace, true, WORKSPACE_EVENT_TOKEN);
+                for folder in &folders {
+                    self.file_watcher.watch(folder, true, WORKSPACE_EVENT_TOKEN);
                 }
 
                 let plugin_rpc = self.catalog_rpc.clone();

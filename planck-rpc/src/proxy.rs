@@ -228,7 +228,9 @@ pub enum ProxyRequest {
 #[serde(tag = "method", content = "params")]
 pub enum ProxyNotification {
     Initialize {
-        workspace: Option<PathBuf>,
+        /// Root folders of the workspace. The first one is the main root, used
+        /// for git and as the language servers' working directory.
+        folders: Vec<PathBuf>,
         lsp_servers: LspServers,
         window_id: usize,
         tab_id: usize,
@@ -555,13 +557,13 @@ impl ProxyRpcHandler {
 
     pub fn initialize(
         &self,
-        workspace: Option<PathBuf>,
+        folders: Vec<PathBuf>,
         lsp_servers: LspServers,
         window_id: usize,
         tab_id: usize,
     ) {
         self.notification(ProxyNotification::Initialize {
-            workspace,
+            folders,
             lsp_servers,
             window_id,
             tab_id,

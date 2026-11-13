@@ -76,6 +76,15 @@ impl PlanckWorkspace {
         self
     }
 
+    /// Every root folder: the space's folders, or the single open folder.
+    pub fn folder_paths(&self) -> Vec<PathBuf> {
+        if self.space.is_some() {
+            self.folders.iter().map(|f| f.path.clone()).collect()
+        } else {
+            self.path.iter().cloned().collect()
+        }
+    }
+
     pub fn display(&self) -> Option<String> {
         if let Some(space) = self.space.as_ref() {
             return Some(space.file_stem()?.to_string_lossy().to_string());
@@ -193,6 +202,7 @@ mod tests {
             Some(std::fs::canonicalize(dir.join("api")).unwrap())
         );
         assert_eq!(ws.folders[1].path, PathBuf::from("/elsewhere/web"));
+        assert_eq!(ws.folder_paths().len(), 2);
         assert_eq!(ws.display().as_deref(), Some("my"));
         assert_eq!(ws.to_string(), space.to_str().unwrap());
 

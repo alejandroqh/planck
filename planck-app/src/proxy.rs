@@ -50,7 +50,7 @@ pub fn new_proxy(
                 core_rpc.notification(CoreNotification::ProxyStatus {
                     status: ProxyStatus::Connecting,
                 });
-                proxy_rpc.initialize(workspace.path.clone(), lsp_servers, 1, 1);
+                proxy_rpc.initialize(workspace.folder_paths(), lsp_servers, 1, 1);
 
                 let mut dispatcher =
                     Dispatcher::new(core_rpc.clone(), proxy_rpc.clone());
