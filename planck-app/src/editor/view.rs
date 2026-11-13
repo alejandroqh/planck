@@ -50,7 +50,8 @@ use planck_core::{
 use planck_rpc::{plugin::PluginId, source_control::CommitInfo};
 
 use super::{
-    DocSignal, EditorData, gutter::editor_gutter_view, minimap::minimap_view,
+    DocSignal, EditorData, EditorViewKind, gutter::editor_gutter_view,
+    minimap::minimap_view,
 };
 use crate::{
     app::clickable_icon,
@@ -270,6 +271,9 @@ pub fn editor_view(
     });
 
     let doc = e_data.doc_signal();
+    let is_diff = create_memo(move |_| {
+        view_kind.with(|k| matches!(k, EditorViewKind::Diff(_)))
+    });
     EditorView {
         id,
         editor: e_data,
@@ -304,7 +308,15 @@ pub fn editor_view(
         EventPropagation::Stop
     })
     .class(EditorViewClass)
-    .style(move |s| editor_style(config, doc, s))
+    .style(move |s| {
+        let s = editor_style(config, doc, s);
+        // The diff view lines up both sides one row per line, so it can't wrap.
+        if is_diff.get() {
+            s.set(WrapProp, WrapMethod::None)
+        } else {
+            s
+        }
+    })
 }
 
 impl EditorView {
