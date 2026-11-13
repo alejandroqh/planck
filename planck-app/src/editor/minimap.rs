@@ -236,13 +236,13 @@ impl View for MinimapView {
         cx.clip(&size.to_rect());
 
         let first = (geometry.scroll / LINE_HEIGHT).floor() as usize;
-        let last = (((geometry.scroll + size.height) / LINE_HEIGHT).ceil()
-            as usize)
+        let last = (((geometry.scroll + size.height) / LINE_HEIGHT).ceil() as usize)
             .min(geometry.total_lines);
         let max_cols = ((size.width - PADDING_LEFT) / CHAR_WIDTH).max(0.0) as usize;
         let tab_width = config.editor.tab_width.max(1);
-        let default_color =
-            config.color(PlanckColor::EDITOR_FOREGROUND).multiply_alpha(0.5);
+        let default_color = config
+            .color(PlanckColor::EDITOR_FOREGROUND)
+            .multiply_alpha(0.5);
 
         let lines: Vec<String> = doc.buffer.with_untracked(|buffer| {
             (first..last)
@@ -259,17 +259,18 @@ impl View for MinimapView {
             // Merge consecutive characters of the same color into one block.
             let mut run: Option<(usize, usize, Color)> = None;
             let mut col = 0;
-            let flush = |cx: &mut PaintCx, run: &mut Option<(usize, usize, Color)>| {
-                if let Some((start, end, color)) = run.take() {
-                    let rect = Rect::new(
-                        PADDING_LEFT + start as f64 * CHAR_WIDTH,
-                        y,
-                        PADDING_LEFT + end as f64 * CHAR_WIDTH,
-                        y + BLOCK_HEIGHT,
-                    );
-                    cx.fill(&rect, color, 0.0);
-                }
-            };
+            let flush =
+                |cx: &mut PaintCx, run: &mut Option<(usize, usize, Color)>| {
+                    if let Some((start, end, color)) = run.take() {
+                        let rect = Rect::new(
+                            PADDING_LEFT + start as f64 * CHAR_WIDTH,
+                            y,
+                            PADDING_LEFT + end as f64 * CHAR_WIDTH,
+                            y + BLOCK_HEIGHT,
+                        );
+                        cx.fill(&rect, color, 0.0);
+                    }
+                };
 
             for (byte, ch) in text.char_indices() {
                 if col >= max_cols {

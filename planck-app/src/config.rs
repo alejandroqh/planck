@@ -974,7 +974,10 @@ mod tests {
     #[test]
     fn default_settings_include_language_servers() {
         let config = PlanckConfig::default_planck_config();
-        let rust = config.lsp.get("rust-analyzer").expect("rust-analyzer default");
+        let rust = config
+            .lsp
+            .get("rust-analyzer")
+            .expect("rust-analyzer default");
         assert_eq!(rust.command, "rust-analyzer");
         assert_eq!(rust.languages, vec!["rust".to_string()]);
         assert!(!rust.disabled);
