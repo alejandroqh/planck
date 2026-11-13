@@ -516,6 +516,10 @@ impl Doc {
     }
 
     fn init_parser(&self) {
+        // Inactive bracket colorization makes update_code a no-op, so skip the full text copy.
+        if !self.parser.borrow().active {
+            return;
+        }
         let code = self.buffer.get_untracked().to_string();
         self.syntax.with_untracked(|syntax| {
             if syntax.styles.is_some() {
