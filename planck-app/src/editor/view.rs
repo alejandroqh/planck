@@ -1712,10 +1712,12 @@ fn editor_gutter(
     stack((
         stack((
             empty().style(move |s| s.width(icon_total_width() * 2.0 - 8.0)),
+            // Invisible sizer: reserves gutter width for the widest line number.
             label(move || {
                 let doc = doc.get();
                 doc.buffer.with(|b| b.last_line() + 1).to_string()
-            }),
+            })
+            .style(|s| s.color(Color::TRANSPARENT)),
             empty().style(move |s| s.width(gutter_padding_right.get())),
         ))
         .debug_name("Centered Last Line Count")
