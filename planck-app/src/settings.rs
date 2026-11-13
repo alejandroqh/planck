@@ -1194,7 +1194,15 @@ fn dropdown_view(
 const DEFAULT_FONT_LABEL: &str = "(default)";
 
 /// Font families installed on the system, sorted and deduplicated.
-fn system_font_families(mono_only: bool) -> Vec<String> {
+/// shortcut: computed once per process, so fonts installed while running need a restart.
+fn system_font_families(mono_only: bool) -> &'static [String] {
+    static FAMILIES: std::sync::OnceLock<[Vec<String>; 2]> =
+        std::sync::OnceLock::new();
+    &FAMILIES.get_or_init(|| [scan_font_families(false), scan_font_families(true)])
+        [mono_only as usize]
+}
+
+fn scan_font_families(mono_only: bool) -> Vec<String> {
     let font_system = FONT_SYSTEM.lock();
     let mut families: Vec<String> = font_system
         .db()
@@ -1244,8 +1252,9 @@ fn font_family_view(
         items.push_back(generic.to_string());
         items.extend(
             system_font_families(mono_only.get())
-                .into_iter()
-                .filter(|name| name != generic),
+                .iter()
+                .filter(|name| *name != generic)
+                .cloned(),
         );
         items
     });
@@ -1261,8 +1270,7 @@ fn font_family_view(
         dropdown_view(item, current_value, items, expanded, window_size, config),
         stack((
             checkbox(move || mono_only.get(), config),
-            label(|| "Mono fonts only".to_string())
-                .style(|s| s.selectable(false)),
+            label(|| "Mono fonts only".to_string()).style(|s| s.selectable(false)),
         ))
         .on_click_stop(move |_| {
             mono_toggled_fields.update(|fields| {
