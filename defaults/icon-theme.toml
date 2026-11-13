@@ -42,6 +42,7 @@ name = "Planck Codicons"
 "scm.diff.renamed" = "diff-renamed.svg"
 "scm.change.add" = "add.svg"
 "scm.change.remove" = "remove.svg"
+"scm.compare" = "git-compare.svg"
 
 "palette.menu" = "chevron-down.svg"
 

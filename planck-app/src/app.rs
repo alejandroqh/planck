@@ -662,6 +662,7 @@ fn editor_tab_header(
     let config = window_tab_data.common.config;
     let internal_command = window_tab_data.common.internal_command;
     let workbench_command = window_tab_data.common.workbench_command;
+    let set_active_editor_tab = window_tab_data.main_split.active_editor_tab;
     let editor_tab_id =
         editor_tab.with_untracked(|editor_tab| editor_tab.editor_tab_id);
 
@@ -1131,6 +1132,30 @@ fn editor_tab_header(
                         })
                 }),
                 stack((
+                    clickable_icon(
+                        || PlanckIcons::SCM_COMPARE,
+                        move || {
+                            // The palette compares the active editor's file.
+                            set_active_editor_tab.set(Some(editor_tab_id));
+                            workbench_command.send(
+                                PlanckWorkbenchCommand::PaletteCompareRevision,
+                            );
+                        },
+                        || false,
+                        || false,
+                        || "Compare With Revision",
+                        config,
+                    )
+                    .style(move |s| {
+                        let shows_file = editor_tab.with(|t| {
+                            matches!(
+                                t.children.get(t.active).map(|(_, _, c)| c),
+                                Some(EditorTabChild::Editor(_))
+                                    | Some(EditorTabChild::DiffEditor(_))
+                            )
+                        });
+                        s.margin_left(6.0).apply_if(!shows_file, |s| s.hide())
+                    }),
                     clickable_icon(
                         || PlanckIcons::SPLIT_HORIZONTAL,
                         move || {

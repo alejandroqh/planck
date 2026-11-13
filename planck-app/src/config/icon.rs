@@ -39,6 +39,7 @@ impl PlanckIcons {
     pub const SCM_DIFF_RENAMED: &'static str = "scm.diff.renamed";
     pub const SCM_CHANGE_ADD: &'static str = "scm.change.add";
     pub const SCM_CHANGE_REMOVE: &'static str = "scm.change.remove";
+    pub const SCM_COMPARE: &'static str = "scm.compare";
 
     pub const FOLD: &'static str = "fold";
     pub const FOLD_UP: &'static str = "fold.up";
