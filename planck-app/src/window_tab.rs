@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     env,
     path::{Path, PathBuf},
     rc::Rc,
@@ -27,9 +27,12 @@ use floem::{
     text::{Attrs, AttrsList, FamilyOwned, LineHeightValue, TextLayout},
     views::editor::core::buffer::rope_text::RopeText,
 };
-use im::HashMap;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use lsp_types::{
+    CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
+    ShowMessageParams,
+};
 use planck_core::{
     command::FocusCommand, cursor::CursorAffinity, directory::Directory, meta,
     mode::Mode, register::Register,
@@ -37,16 +40,12 @@ use planck_core::{
 use planck_rpc::{
     RpcError,
     core::CoreNotification,
-    dap_types::{ConfigSource, RunDebugConfig},
     file::{Naming, PathObject},
     plugin::PluginId,
     proxy::{ProxyResponse, ProxyRpcHandler, ProxyStatus},
+    run::{ConfigSource, RunConfig},
     source_control::FileDiff,
     terminal::TermId,
-};
-use lsp_types::{
-    CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
-    ShowMessageParams,
 };
 use serde_json::Value;
 use tracing::{Level, debug, error, event};
@@ -62,7 +61,6 @@ use crate::{
     completion::{CompletionData, CompletionStatus},
     config::PlanckConfig,
     db::PlanckDb,
-    debug::{DapData, PlanckBreakpoint, RunDebugMode, RunDebugProcess},
     doc::DocContent,
     editor::{
         InlineFindDirection,
@@ -86,9 +84,9 @@ use crate::{
         kind::PanelKind,
         position::PanelContainerPosition,
     },
-    plugin::PluginData,
     proxy::{ProxyData, new_proxy},
     rename::RenameData,
+    run::RunProcess,
     source_control::SourceControlData,
     terminal::{
         event::{TermEvent, TermNotification, terminal_update_process},
@@ -96,7 +94,7 @@ use crate::{
     },
     tracing::*,
     window::WindowCommonData,
-    workspace::{PlanckWorkspace, PlanckWorkspaceType, WorkspaceInfo},
+    workspace::{PlanckWorkspace, WorkspaceInfo},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,7 +152,6 @@ pub struct CommonData {
     pub config: ReadSignal<Arc<PlanckConfig>>,
     pub proxy_status: RwSignal<Option<ProxyStatus>>,
     pub mouse_hover_timer: RwSignal<TimerToken>,
-    pub breakpoints: RwSignal<BTreeMap<PathBuf, BTreeMap<usize, PlanckBreakpoint>>>,
     // the current focused view which will receive keyboard events
     pub keyboard_focus: RwSignal<Option<ViewId>>,
     pub window_common: Rc<WindowCommonData>,
@@ -178,7 +175,6 @@ pub struct WindowTabData {
     pub file_explorer: FileExplorerData,
     pub panel: PanelData,
     pub terminal: TerminalPanelData,
-    pub plugin: PluginData,
     pub code_action: RwSignal<CodeActionData>,
     pub code_lens: RwSignal<Option<ViewId>>,
     pub source_control: SourceControlData,
@@ -296,13 +292,6 @@ impl WindowTabData {
         let cx = cx.create_child();
         let db: Arc<PlanckDb> = use_context().unwrap();
 
-        let disabled_volts = db.get_disabled_volts().unwrap_or_default();
-        let workspace_disabled_volts = db
-            .get_workspace_disabled_volts(&workspace)
-            .unwrap_or_default();
-        let mut all_disabled_volts = disabled_volts.clone();
-        all_disabled_volts.extend(workspace_disabled_volts.clone());
-
         let workspace_info = if workspace.path.is_some() {
             db.get_workspace_info(&workspace).ok()
         } else {
@@ -313,11 +302,7 @@ impl WindowTabData {
             info
         };
 
-        let config = PlanckConfig::load(
-            &workspace,
-            &all_disabled_volts,
-            &window_common.extra_plugin_paths,
-        );
+        let config = PlanckConfig::load(&workspace);
         let planck_command = Listener::new_empty(cx);
         let workbench_command = Listener::new_empty(cx);
         let internal_command = Listener::new_empty(cx);
@@ -336,13 +321,8 @@ impl WindowTabData {
                 .unwrap();
         }
 
-        let proxy = new_proxy(
-            workspace.clone(),
-            all_disabled_volts,
-            window_common.extra_plugin_paths.as_ref().clone(),
-            config.plugins.clone(),
-            term_tx.clone(),
-        );
+        let proxy =
+            new_proxy(workspace.clone(), config.lsp.clone(), term_tx.clone());
         let (config, set_config) = cx.create_signal(Arc::new(config));
 
         let focus = cx.create_rw_signal(Focus::Workbench);
@@ -393,7 +373,6 @@ impl WindowTabData {
             proxy_status,
             mouse_hover_timer: cx.create_rw_signal(TimerToken::INVALID),
             window_origin: cx.create_rw_signal(Point::ZERO),
-            breakpoints: cx.create_rw_signal(BTreeMap::new()),
             keyboard_focus: cx.create_rw_signal(None),
             window_common: window_common.clone(),
         });
@@ -497,36 +476,9 @@ impl WindowTabData {
             common.clone(),
             main_split.clone(),
         );
-        if let Some(workspace_info) = workspace_info.as_ref() {
-            terminal.debug.breakpoints.set(
-                workspace_info
-                    .breakpoints
-                    .clone()
-                    .into_iter()
-                    .map(|(path, breakpoints)| {
-                        (
-                            path,
-                            breakpoints
-                                .into_iter()
-                                .map(|b| (b.line, b))
-                                .collect::<BTreeMap<usize, PlanckBreakpoint>>(),
-                        )
-                    })
-                    .collect(),
-            );
-        }
 
         let rename = RenameData::new(cx, main_split.editors, common.clone());
         let global_search = GlobalSearchData::new(cx, main_split.clone());
-
-        let plugin = PluginData::new(
-            cx,
-            HashSet::from_iter(disabled_volts),
-            HashSet::from_iter(workspace_disabled_volts),
-            main_split.editors,
-            common.clone(),
-            proxy.core_rpc.clone(),
-        );
 
         {
             let notification = create_signal_from_channel(term_notification_rx);
@@ -562,7 +514,6 @@ impl WindowTabData {
             code_action,
             code_lens: cx.create_rw_signal(None),
             source_control,
-            plugin,
             rename,
             global_search,
             call_hierarchy_data: CallHierarchyData {
@@ -637,62 +588,15 @@ impl WindowTabData {
     }
 
     pub fn reload_config(&self) {
-        let db: Arc<PlanckDb> = use_context().unwrap();
-
-        let disabled_volts = db.get_disabled_volts().unwrap_or_default();
-        let workspace_disabled_volts = db
-            .get_workspace_disabled_volts(&self.workspace)
-            .unwrap_or_default();
-        let mut all_disabled_volts = disabled_volts;
-        all_disabled_volts.extend(workspace_disabled_volts);
-
-        let config = PlanckConfig::load(
-            &self.workspace,
-            &all_disabled_volts,
-            &self.common.window_common.extra_plugin_paths,
-        );
+        let config = PlanckConfig::load(&self.workspace);
         self.common.keypress.update(|keypress| {
             keypress.update_keymaps(&config);
         });
 
-        let mut change_plugins = Vec::new();
-        for (key, configs) in self.common.config.get_untracked().plugins.iter() {
-            if config
-                .plugins
-                .get(key)
-                .map(|x| x != configs)
-                .unwrap_or_default()
-            {
-                change_plugins.push(key.clone());
-            }
-        }
+        let lsp_changed = self.common.config.get_untracked().lsp != config.lsp;
         self.set_config.set(Arc::new(config.clone()));
-        if !change_plugins.is_empty() {
-            self.common
-                .proxy
-                .update_plugin_configs(config.plugins.clone());
-            if config.core.auto_reload_plugin {
-                let mut plugin_metas: HashMap<
-                    String,
-                    planck_rpc::plugin::VoltMetadata,
-                > = self
-                    .plugin
-                    .installed
-                    .get_untracked()
-                    .values()
-                    .map(|x| {
-                        let meta = x.meta.get_untracked();
-                        (meta.name.clone(), meta)
-                    })
-                    .collect();
-                for name in change_plugins {
-                    if let Some(meta) = plugin_metas.remove(&name) {
-                        self.common.proxy.reload_volt(meta);
-                    } else {
-                        tracing::error!("not found volt metadata of {}", name);
-                    }
-                }
-            }
+        if lsp_changed {
+            self.common.proxy.update_lsp_servers(config.lsp);
         }
     }
 
@@ -739,7 +643,7 @@ impl WindowTabData {
 
             // ==== Files / Folders ====
             OpenFolder => {
-                if !self.workspace.kind.is_remote() {
+                {
                     let window_command = self.common.window_common.window_command;
                     let mut options = FileDialogOptions::new().title("Choose a folder").select_directories();
                     options = if let Some(parent) = self.workspace.path.as_ref().and_then(|x| x.parent()) {
@@ -750,7 +654,6 @@ impl WindowTabData {
                     open_file(options, move |file| {
                         if let Some(mut file) = file {
                             let workspace = PlanckWorkspace {
-                                kind: PlanckWorkspaceType::Local,
                                 path: Some(if let Some(path) = file.path.pop() {
                                     path
                                 } else {
@@ -766,15 +669,12 @@ impl WindowTabData {
                                 .send(WindowCommand::SetWorkspace { workspace });
                         }
                     });
-                } else {
-                    self.palette.run(PaletteKind::FileChooser);
                 }
             }
             CloseFolder => {
-                if !self.workspace.kind.is_remote() {
+                {
                     let window_command = self.common.window_common.window_command;
                     let workspace = PlanckWorkspace {
-                        kind: PlanckWorkspaceType::Local,
                         path: None,
                         last_open: 0,
                     };
@@ -782,7 +682,7 @@ impl WindowTabData {
                 }
             }
             OpenFile => {
-                if !self.workspace.kind.is_remote() {
+                {
                     let internal_command = self.common.internal_command;
                     let options = FileDialogOptions::new().title("Choose a file");
                     open_file(options, move |file| {
@@ -797,8 +697,6 @@ impl WindowTabData {
                             })
                         }
                     });
-                } else { // TODO: Force only choosing files?
-                    self.palette.run(PaletteKind::FileChooser);
                 }
             }
             NewFile => {
@@ -929,11 +827,6 @@ impl WindowTabData {
             }
             OpenThemesDirectory => {
                 if let Some(dir) = Directory::themes_directory() {
-                    open_uri(&dir);
-                }
-            }
-            OpenPluginsDirectory => {
-                if let Some(dir) = Directory::plugins_directory() {
                     open_uri(&dir);
                 }
             }
@@ -1117,26 +1010,6 @@ impl WindowTabData {
                 self.common.focus.set(Focus::Panel(PanelKind::Terminal));
             }
 
-            // ==== Remote ====
-            ConnectSshHost => {
-                self.palette.run(PaletteKind::SshHost);
-            }
-            #[cfg(windows)]
-            ConnectWslHost => {
-                self.palette.run(PaletteKind::WslHost);
-            }
-            DisconnectRemote => {
-                self.common.window_common.window_command.send(
-                    WindowCommand::SetWorkspace {
-                        workspace: PlanckWorkspace {
-                            kind: PlanckWorkspaceType::Local,
-                            path: None,
-                            last_open: 0,
-                        },
-                    },
-                );
-            }
-
             // ==== Palette Commands ====
             PaletteHelp => self.palette.run(PaletteKind::PaletteHelp),
             PaletteHelpAndFile => self.palette.run(PaletteKind::HelpAndFile),
@@ -1156,8 +1029,8 @@ impl WindowTabData {
             PaletteWorkspace => {
                 self.palette.run(PaletteKind::Workspace);
             }
-            PaletteRunAndDebug => {
-                self.palette.run(PaletteKind::RunAndDebug);
+            PaletteRun => {
+                self.palette.run(PaletteKind::Run);
             }
             PaletteSCMReferences => {
                 self.palette.run(PaletteKind::SCMReferences);
@@ -1176,24 +1049,21 @@ impl WindowTabData {
             }
             DiffFiles => self.palette.run(PaletteKind::DiffFiles),
 
-            // ==== Running / Debugging ====
-            RunAndDebugRestart => {
-                let active_term = self.terminal.debug.active_term.get_untracked();
-                if let Some(is_debug) = active_term
-                    .and_then(|term_id| self.terminal.restart_run_debug(term_id))
+            // ==== Running ====
+            RunRestart => {
+                if self
+                    .active_run_term()
+                    .and_then(|term_id| self.terminal.restart_run(term_id))
+                    .is_some()
                 {
                     self.panel.show_panel(&PanelKind::Terminal);
-                    if is_debug {
-                        self.panel.show_panel(&PanelKind::Debug);
-                    }
                 } else {
-                    self.palette.run(PaletteKind::RunAndDebug);
+                    self.palette.run(PaletteKind::Run);
                 }
             }
-            RunAndDebugStop => {
-                let active_term = self.terminal.debug.active_term.get_untracked();
-                if let Some(term_id) = active_term {
-                    self.terminal.stop_run_debug(term_id);
+            RunStop => {
+                if let Some(term_id) = self.active_run_term() {
+                    self.terminal.stop_run(term_id);
                 }
             }
 
@@ -1290,9 +1160,6 @@ impl WindowTabData {
             ToggleSourceControlFocus => {
                 self.toggle_panel_focus(PanelKind::SourceControl);
             }
-            TogglePluginFocus => {
-                self.toggle_panel_focus(PanelKind::Plugin);
-            }
             ToggleFileExplorerFocus => {
                 self.toggle_panel_focus(PanelKind::FileExplorer);
             }
@@ -1308,17 +1175,11 @@ impl WindowTabData {
             ToggleSourceControlVisual => {
                 self.toggle_panel_visual(PanelKind::SourceControl);
             }
-            TogglePluginVisual => {
-                self.toggle_panel_visual(PanelKind::Plugin);
-            }
             ToggleFileExplorerVisual => {
                 self.toggle_panel_visual(PanelKind::FileExplorer);
             }
             ToggleProblemVisual => {
                 self.toggle_panel_visual(PanelKind::Problem);
-            }
-            ToggleDebugVisual => {
-                self.toggle_panel_visual(PanelKind::Debug);
             }
             ToggleSearchVisual => {
                 self.toggle_panel_visual(PanelKind::Search);
@@ -1556,22 +1417,18 @@ impl WindowTabData {
                             Some(args)
                         };
 
-                        let config = RunDebugConfig {
-                            ty: None,
+                        let config = RunConfig {
                             name,
                             program,
                             args,
                             cwd: None,
                             env: None,
                             prelaunch: None,
-                            debug_command: None,
-                            dap_id: Default::default(),
-                            tracing_output: false,
                             config_source: ConfigSource::RunInTerminal,
                         };
                         self.common
                             .internal_command
-                            .send(InternalCommand::RunAndDebug { mode: RunDebugMode::Run, config });
+                            .send(InternalCommand::Run { config });
                     }
                 }
             }
@@ -1601,7 +1458,7 @@ impl WindowTabData {
                     } });
                 }
             }
-            AddRunDebugConfig => {
+            AddRunConfig => {
                 if let Some(editor_data) =
                     self.main_split.active_editor.get_untracked()
                 {
@@ -1627,7 +1484,6 @@ impl WindowTabData {
     }
 
     pub fn run_internal_command(&self, cmd: InternalCommand) {
-        let cx = self.scope;
         match cmd {
             InternalCommand::ReloadConfig => {
                 self.reload_config();
@@ -1924,8 +1780,8 @@ impl WindowTabData {
             InternalCommand::SplitTerminalExchange { term_id } => {
                 self.terminal.split_exchange(term_id);
             }
-            InternalCommand::RunAndDebug { mode, config } => {
-                self.run_and_debug(cx, &mode, &config);
+            InternalCommand::Run { config } => {
+                self.run_in_terminal(&config);
             }
             InternalCommand::StartRename {
                 path,
@@ -2036,12 +1892,6 @@ impl WindowTabData {
             InternalCommand::UpdateProxyStatus { status } => {
                 self.common.proxy_status.set(Some(status));
             }
-            InternalCommand::DapFrameScopes { dap_id, frame_id } => {
-                self.terminal.dap_frame_scopes(dap_id, frame_id);
-            }
-            InternalCommand::OpenVoltView { volt_id } => {
-                self.main_split.open_volt_view(volt_id);
-            }
             InternalCommand::ResetBlinkCursor => {
                 // All the editors share the blinking information and logic, so we can just reset
                 // one of them.
@@ -2104,16 +1954,13 @@ impl WindowTabData {
                 view_id.request_paint();
             }
             InternalCommand::StopTerminal { term_id } => {
-                self.terminal.stop_run_debug(term_id);
+                self.terminal.stop_run(term_id);
             }
             InternalCommand::RestartTerminal { term_id } => {
-                if let Some(is_debug) = self.terminal.restart_run_debug(term_id) {
+                if self.terminal.restart_run(term_id).is_some() {
                     self.panel.show_panel(&PanelKind::Terminal);
-                    if is_debug {
-                        self.panel.show_panel(&PanelKind::Debug);
-                    }
                 } else {
-                    self.palette.run(PaletteKind::RunAndDebug);
+                    self.palette.run(PaletteKind::Run);
                 }
             }
             InternalCommand::CallHierarchyIncoming { item_id } => {
@@ -2123,7 +1970,6 @@ impl WindowTabData {
     }
 
     fn handle_core_notification(&self, rpc: &CoreNotification) {
-        let cx = self.scope;
         match rpc {
             CoreNotification::ProxyStatus { status } => {
                 self.common.proxy_status.set(Some(status.to_owned()));
@@ -2236,77 +2082,12 @@ impl WindowTabData {
             CoreNotification::TerminalLaunchFailed { term_id, error } => {
                 self.terminal.launch_failed(term_id, error);
             }
-            CoreNotification::RunInTerminal { config } => {
-                self.run_in_terminal(cx, &RunDebugMode::Debug, config, true);
-            }
-            CoreNotification::TerminalProcessId {
-                term_id,
-                process_id,
-            } => {
-                self.terminal.set_process_id(term_id, *process_id);
-            }
-            CoreNotification::DapStopped {
-                dap_id,
-                stopped,
-                stack_frames,
-                variables,
-            } => {
-                self.show_panel(PanelKind::Debug);
-                self.terminal
-                    .dap_stopped(dap_id, stopped, stack_frames, variables);
-            }
+            CoreNotification::TerminalProcessId { .. } => {}
             CoreNotification::OpenPaths { paths } => {
                 self.open_paths(paths);
             }
-            CoreNotification::DapContinued { dap_id } => {
-                self.terminal.dap_continued(dap_id);
-            }
-            CoreNotification::DapBreakpointsResp {
-                path, breakpoints, ..
-            } => {
-                self.terminal.debug.breakpoints.update(|all_breakpoints| {
-                    if let Some(current_breakpoints) = all_breakpoints.get_mut(path)
-                    {
-                        let mut line_changed = HashSet::new();
-                        let mut i = 0;
-                        for (_, current_breakpoint) in current_breakpoints.iter_mut()
-                        {
-                            if !current_breakpoint.active {
-                                continue;
-                            }
-                            if let Some(breakpoint) = breakpoints.get(i) {
-                                current_breakpoint.id = breakpoint.id;
-                                current_breakpoint.verified = breakpoint.verified;
-                                current_breakpoint
-                                    .message
-                                    .clone_from(&breakpoint.message);
-                                if let Some(new_line) = breakpoint.line {
-                                    if current_breakpoint.line + 1 != new_line {
-                                        line_changed.insert(current_breakpoint.line);
-                                        current_breakpoint.line =
-                                            new_line.saturating_sub(1);
-                                    }
-                                }
-                            }
-                            i += 1;
-                        }
-                        for line in line_changed {
-                            if let Some(changed) = current_breakpoints.remove(&line)
-                            {
-                                current_breakpoints.insert(changed.line, changed);
-                            }
-                        }
-                    }
-                });
-            }
             CoreNotification::OpenFileChanged { path, content } => {
                 self.main_split.open_file_changed(path, content);
-            }
-            CoreNotification::VoltInstalled { volt, icon } => {
-                self.plugin.volt_installed(volt, icon);
-            }
-            CoreNotification::VoltRemoved { volt, .. } => {
-                self.plugin.volt_removed(volt);
             }
             CoreNotification::WorkDoneProgress { progress } => {
                 self.update_progress(progress);
@@ -2392,9 +2173,6 @@ impl WindowTabData {
             Focus::Panel(PanelKind::Search) => {
                 Some(keypress.key_down(event, &self.global_search))
             }
-            Focus::Panel(PanelKind::Plugin) => {
-                Some(keypress.key_down(event, &self.plugin))
-            }
             Focus::Panel(PanelKind::SourceControl) => {
                 Some(keypress.key_down(event, &self.source_control))
             }
@@ -2429,16 +2207,6 @@ impl WindowTabData {
         WorkspaceInfo {
             split: main_split_data.get_untracked().split_info(self),
             panel: self.panel.panel_info(),
-            breakpoints: self
-                .terminal
-                .debug
-                .breakpoints
-                .get_untracked()
-                .into_iter()
-                .map(|(path, breakpoints)| {
-                    (path, breakpoints.into_values().collect::<Vec<_>>())
-                })
-                .collect(),
         }
     }
 
@@ -2672,9 +2440,7 @@ impl WindowTabData {
     /// Toggle a specific kind of panel.
     fn toggle_panel_focus(&self, kind: PanelKind) {
         let should_hide = match kind {
-            PanelKind::Plugin
-            | PanelKind::Problem
-            | PanelKind::Debug
+            PanelKind::Problem
             | PanelKind::CallHierarchy
             | PanelKind::DocumentSymbol
             | PanelKind::References
@@ -2774,77 +2540,35 @@ impl WindowTabData {
         self.common.focus.set(Focus::Panel(kind));
     }
 
-    fn run_and_debug(
-        &self,
-        cx: Scope,
-        mode: &RunDebugMode,
-        config: &RunDebugConfig,
-    ) {
-        debug!("{:?}", config);
-        match mode {
-            RunDebugMode::Run => {
-                self.run_in_terminal(cx, mode, config, false);
-            }
-            RunDebugMode::Debug => {
-                if config.prelaunch.is_some() {
-                    self.run_in_terminal(cx, mode, config, false);
-                } else {
-                    self.common.proxy.dap_start(
-                        config.clone(),
-                        self.terminal.debug.source_breakpoints(),
-                    )
-                };
-                if !self.panel.is_panel_visible(&PanelKind::Debug) {
-                    self.panel.show_panel(&PanelKind::Debug);
-                }
-            }
-        }
+    /// The terminal that Run restart/stop act on: the focused terminal,
+    /// if it is running a run configuration.
+    fn active_run_term(&self) -> Option<TermId> {
+        let terminal = self.terminal.active_tab(false)?.active_terminal(false)?;
+        terminal
+            .run_debug
+            .with_untracked(|run| run.is_some())
+            .then_some(terminal.term_id)
     }
 
-    fn run_in_terminal(
-        &self,
-        cx: Scope,
-        mode: &RunDebugMode,
-        config: &RunDebugConfig,
-        from_dap: bool,
-    ) {
-        // if not from dap, then run prelaunch first
-        let is_prelaunch = !from_dap;
-        let term_id = if let Some(terminal) =
-            self.terminal.get_stopped_run_debug_terminal(mode, config)
-        {
-            terminal.new_process(Some(RunDebugProcess {
-                mode: *mode,
-                config: config.clone(),
-                stopped: false,
-                created: Instant::now(),
-                is_prelaunch,
-            }));
-
-            terminal.term_id
-        } else {
-            let new_terminal_tab = self.terminal.new_tab_run_debug(
-                Some(RunDebugProcess {
-                    mode: *mode,
-                    config: config.clone(),
-                    stopped: false,
-                    created: Instant::now(),
-                    is_prelaunch,
-                }),
-                None,
-            );
-            new_terminal_tab.active_terminal(false).unwrap().term_id
+    fn run_in_terminal(&self, config: &RunConfig) {
+        debug!("{:?}", config);
+        let process = RunProcess {
+            config: config.clone(),
+            stopped: false,
+            created: Instant::now(),
+            is_prelaunch: true,
         };
+        let term_id =
+            if let Some(terminal) = self.terminal.get_stopped_run_terminal(config) {
+                terminal.new_process(Some(process));
+                terminal.term_id
+            } else {
+                let new_terminal_tab =
+                    self.terminal.new_tab_run_debug(Some(process), None);
+                new_terminal_tab.active_terminal(false).unwrap().term_id
+            };
         self.common.focus.set(Focus::Panel(PanelKind::Terminal));
         self.terminal.focus_terminal(term_id);
-
-        self.terminal.debug.active_term.set(Some(term_id));
-        self.terminal.debug.daps.update(|daps| {
-            daps.insert(
-                config.dap_id,
-                DapData::new(cx, config.dap_id, term_id, self.common.clone()),
-            );
-        });
 
         if !self.panel.is_panel_visible(&PanelKind::Terminal) {
             self.panel.show_panel(&PanelKind::Terminal);
@@ -2859,7 +2583,6 @@ impl WindowTabData {
             self.common.window_common.window_command.send(
                 WindowCommand::NewWorkspaceTab {
                     workspace: PlanckWorkspace {
-                        kind: self.workspace.kind.clone(),
                         path: Some(folder.path.clone()),
                         last_open: 0,
                     },

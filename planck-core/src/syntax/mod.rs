@@ -19,11 +19,11 @@ use ahash::RandomState;
 use floem_editor_core::util::{matching_bracket_general, matching_pair_direction};
 use hashbrown::raw::RawTable;
 use itertools::Itertools;
-use planck_rpc::style::{LineStyle, Style};
 use lapce_xi_rope::{
     Interval, Rope,
     spans::{Spans, SpansBuilder},
 };
+use planck_rpc::style::{LineStyle, Style};
 use slotmap::{DefaultKey as LayerId, HopSlotMap};
 use thiserror::Error;
 use tree_sitter::{Node, Parser, Point, QueryCursor, Tree};
@@ -518,7 +518,9 @@ impl SyntaxLayers {
                 InjectionLanguageMarker::Filename(path) => {
                     PlanckLanguage::from_path_raw(path)
                 }
-                InjectionLanguageMarker::Shebang(id) => PlanckLanguage::from_name(id),
+                InjectionLanguageMarker::Shebang(id) => {
+                    PlanckLanguage::from_name(id)
+                }
             };
             language
                 .map(get_highlight_config)

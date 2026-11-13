@@ -41,7 +41,7 @@ impl SvgStore {
 
     pub fn get_default_svg(&mut self, name: &str) -> String {
         if !self.svgs.contains_key(name) {
-            let file = if name == "planck_remote.svg" || name == "planck_logo.svg" {
+            let file = if name == "planck_logo.svg" {
                 PLANCK_ICONS_DIR.get_file(name).unwrap()
             } else {
                 CODICONS_ICONS_DIR

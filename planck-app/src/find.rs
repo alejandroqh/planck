@@ -4,13 +4,13 @@ use floem::{
     prelude::SignalTrack,
     reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
 };
-use planck_core::{
-    selection::{SelRegion, Selection},
-    word::WordCursor,
-};
 use lapce_xi_rope::{
     Cursor, Interval, Rope,
     find::{CaseMatching, find, is_multiline_regex},
+};
+use planck_core::{
+    selection::{SelRegion, Selection},
+    word::WordCursor,
 };
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};

@@ -23,7 +23,9 @@ use self::{
     loader::KeyMapLoader,
 };
 use crate::{
-    command::{CommandExecuted, CommandKind, PlanckCommand, planck_internal_commands},
+    command::{
+        CommandExecuted, CommandKind, PlanckCommand, planck_internal_commands,
+    },
     config::PlanckConfig,
     keypress::{
         condition::{CheckCondition, Condition},

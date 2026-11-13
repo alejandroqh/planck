@@ -1,14 +1,13 @@
 use std::path::PathBuf;
 
-use planck_core::line_ending::LineEnding;
-use planck_rpc::dap_types::RunDebugConfig;
 use lsp_types::{Range, SymbolKind};
+use planck_core::line_ending::LineEnding;
+use planck_rpc::run::RunConfig;
 
 use crate::{
     command::{PlanckCommand, PlanckWorkbenchCommand},
-    debug::RunDebugMode,
     editor::location::EditorLocation,
-    workspace::{PlanckWorkspace, SshHost},
+    workspace::PlanckWorkspace,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,14 +25,6 @@ pub enum PaletteItemContent {
     },
     File {
         path: PathBuf,
-        full_path: PathBuf,
-    },
-    FileChooserEntry {
-        path: PathBuf,
-        full_path: PathBuf,
-        is_dir: bool,
-    },
-    ConfirmFileChooserEntry {
         full_path: PathBuf,
     },
     Line {
@@ -62,16 +53,8 @@ pub enum PaletteItemContent {
         container_name: Option<String>,
         location: EditorLocation,
     },
-    SshHost {
-        host: SshHost,
-    },
-    #[cfg(windows)]
-    WslHost {
-        host: crate::workspace::WslHost,
-    },
-    RunAndDebug {
-        mode: RunDebugMode,
-        config: RunDebugConfig,
+    Run {
+        config: RunConfig,
     },
     ColorTheme {
         name: String,

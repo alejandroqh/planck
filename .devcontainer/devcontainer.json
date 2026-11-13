@@ -1,5 +1,5 @@
 {
-    "image": "ghcr.io/planck/lapdev-devcontainer-planck",
+    "image": "ghcr.io/lapce/lapdev-devcontainer-lapce",
     "forwardPorts": [6080],
     "portsAttributes": {
         "6080": {

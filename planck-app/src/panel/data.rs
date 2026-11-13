@@ -24,12 +24,7 @@ pub fn default_panel_order() -> PanelOrder {
     let mut order = PanelOrder::new();
     order.insert(
         PanelPosition::LeftTop,
-        im::vector![
-            PanelKind::FileExplorer,
-            PanelKind::Plugin,
-            PanelKind::SourceControl,
-            PanelKind::Debug,
-        ],
+        im::vector![PanelKind::FileExplorer, PanelKind::SourceControl,],
     );
     order.insert(
         PanelPosition::BottomLeft,
@@ -59,10 +54,6 @@ pub enum PanelSection {
     Changes,
     Installed,
     Available,
-    Process,
-    Variable,
-    StackFrame,
-    Breakpoint,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

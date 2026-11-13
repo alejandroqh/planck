@@ -52,12 +52,6 @@ impl PlanckColor {
     pub const PLANCK_ICON_ACTIVE: &'static str = "planck.icon.active";
     pub const PLANCK_ICON_INACTIVE: &'static str = "planck.icon.inactive";
 
-    pub const PLANCK_REMOTE_ICON: &'static str = "planck.remote.icon";
-    pub const PLANCK_REMOTE_LOCAL: &'static str = "planck.remote.local";
-    pub const PLANCK_REMOTE_CONNECTED: &'static str = "planck.remote.connected";
-    pub const PLANCK_REMOTE_CONNECTING: &'static str = "planck.remote.connecting";
-    pub const PLANCK_REMOTE_DISCONNECTED: &'static str = "planck.remote.disconnected";
-
     pub const PLANCK_PLUGIN_NAME: &'static str = "planck.plugin.name";
     pub const PLANCK_PLUGIN_DESCRIPTION: &'static str = "planck.plugin.description";
     pub const PLANCK_PLUGIN_AUTHOR: &'static str = "planck.plugin.author";
@@ -68,7 +62,6 @@ impl PlanckColor {
     pub const EDITOR_FOCUS: &'static str = "editor.focus";
     pub const EDITOR_CARET: &'static str = "editor.caret";
     pub const EDITOR_SELECTION: &'static str = "editor.selection";
-    pub const EDITOR_DEBUG_BREAK_LINE: &'static str = "editor.debug_break_line";
     pub const EDITOR_CURRENT_LINE: &'static str = "editor.current_line";
     pub const EDITOR_LINK: &'static str = "editor.link";
     pub const EDITOR_VISIBLE_WHITESPACE: &'static str = "editor.visible_whitespace";
@@ -138,9 +131,6 @@ impl PlanckColor {
 
     pub const ACTIVITY_BACKGROUND: &'static str = "activity.background";
     pub const ACTIVITY_CURRENT: &'static str = "activity.current";
-
-    pub const DEBUG_BREAKPOINT: &'static str = "debug.breakpoint";
-    pub const DEBUG_BREAKPOINT_HOVER: &'static str = "debug.breakpoint.hover";
 
     pub const TOOLTIP_BACKGROUND: &'static str = "tooltip.background";
     pub const TOOLTIP_FOREGROUND: &'static str = "tooltip.foreground";

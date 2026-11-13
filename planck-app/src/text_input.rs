@@ -24,12 +24,12 @@ use floem::{
     unit::PxPct,
     views::Decorators,
 };
+use lapce_xi_rope::Rope;
 use planck_core::{
     buffer::rope_text::RopeText,
     cursor::{Cursor, CursorMode},
     selection::Selection,
 };
-use lapce_xi_rope::Rope;
 
 use crate::{
     config::{PlanckConfig, color::PlanckColor},

@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use planck_rpc::dap_types::{ConfigSource, RunDebugConfig};
+use planck_rpc::run::{ConfigSource, RunConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{command::InternalCommand, debug::RunDebugMode, window_tab::CommonData};
+use crate::{command::InternalCommand, window_tab::CommonData};
 
 #[derive(Serialize, Deserialize)]
 struct CargoArgs {
@@ -38,16 +38,11 @@ impl CodeLensData {
 
     pub fn run(&self, command: &str, args: Vec<Value>) {
         match command {
-            "rust-analyzer.runSingle" | "rust-analyzer.debugSingle" => {
-                let mode = if command == "rust-analyzer.runSingle" {
-                    RunDebugMode::Run
-                } else {
-                    RunDebugMode::Debug
-                };
-                if let Some(config) = self.get_rust_command_config(&args, mode) {
+            "rust-analyzer.runSingle" => {
+                if let Some(config) = self.get_rust_command_config(&args) {
                     self.common
                         .internal_command
-                        .send(InternalCommand::RunAndDebug { mode, config });
+                        .send(InternalCommand::Run { config });
                 }
             }
             _ => {
@@ -56,11 +51,7 @@ impl CodeLensData {
         }
     }
 
-    fn get_rust_command_config(
-        &self,
-        args: &[Value],
-        mode: RunDebugMode,
-    ) -> Option<RunDebugConfig> {
+    fn get_rust_command_config(&self, args: &[Value]) -> Option<RunConfig> {
         if let Some(args) = args.first() {
             let Ok(mut cargo_args) =
                 serde_json::from_value::<RustArgs>(args.clone())
@@ -79,17 +70,13 @@ impl CodeLensData {
                     .cargo_args
                     .extend(cargo_args.args.executable_args);
             }
-            Some(RunDebugConfig {
-                ty: None,
+            Some(RunConfig {
                 name: cargo_args.label,
                 program: cargo_args.kind,
                 args: Some(cargo_args.args.cargo_args),
                 cwd: None,
                 env: None,
                 prelaunch: None,
-                debug_command: None,
-                dap_id: Default::default(),
-                tracing_output: mode == RunDebugMode::Debug,
                 config_source: ConfigSource::CodeLens,
             })
         } else {

@@ -5,8 +5,8 @@ use std::{
     str::FromStr,
 };
 
-use planck_rpc::style::{LineStyle, Style};
 use once_cell::sync::Lazy;
+use planck_rpc::style::{LineStyle, Style};
 use regex::Regex;
 use strum_macros::{AsRefStr, Display, EnumMessage, EnumString, IntoStaticStr};
 use tracing::{Level, event};

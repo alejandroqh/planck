@@ -6,17 +6,13 @@ use crate::command::PlanckWorkbenchCommand;
 pub enum PaletteKind {
     PaletteHelp,
     File,
-    FileChooser,
     Line,
     Command,
     Workspace,
     Reference,
     DocumentSymbol,
     WorkspaceSymbol,
-    SshHost,
-    #[cfg(windows)]
-    WslHost,
-    RunAndDebug,
+    Run,
     ColorTheme,
     IconTheme,
     Language,
@@ -40,10 +36,8 @@ impl PaletteKind {
             PaletteKind::Command => ":",
             PaletteKind::TerminalProfile => "<",
             PaletteKind::File
-            | PaletteKind::FileChooser
             | PaletteKind::Reference
-            | PaletteKind::SshHost
-            | PaletteKind::RunAndDebug
+            | PaletteKind::Run
             | PaletteKind::ColorTheme
             | PaletteKind::IconTheme
             | PaletteKind::Language
@@ -51,8 +45,6 @@ impl PaletteKind {
             | PaletteKind::SCMReferences
             | PaletteKind::HelpAndFile
             | PaletteKind::DiffFiles => "",
-            #[cfg(windows)]
-            PaletteKind::WslHost => "",
         }
     }
 
@@ -84,20 +76,18 @@ impl PaletteKind {
             PaletteKind::Workspace => Some(PlanckWorkbenchCommand::PaletteWorkspace),
             PaletteKind::Command => Some(PlanckWorkbenchCommand::PaletteCommand),
             PaletteKind::File => Some(PlanckWorkbenchCommand::Palette),
-            PaletteKind::FileChooser => None,
             PaletteKind::HelpAndFile => {
                 Some(PlanckWorkbenchCommand::PaletteHelpAndFile)
             }
             PaletteKind::Reference => None, // InternalCommand::PaletteReferences
-            PaletteKind::SshHost => Some(PlanckWorkbenchCommand::ConnectSshHost),
-            #[cfg(windows)]
-            PaletteKind::WslHost => Some(PlanckWorkbenchCommand::ConnectWslHost),
-            PaletteKind::RunAndDebug => {
-                Some(PlanckWorkbenchCommand::PaletteRunAndDebug)
+            PaletteKind::Run => Some(PlanckWorkbenchCommand::PaletteRun),
+            PaletteKind::ColorTheme => {
+                Some(PlanckWorkbenchCommand::ChangeColorTheme)
             }
-            PaletteKind::ColorTheme => Some(PlanckWorkbenchCommand::ChangeColorTheme),
             PaletteKind::IconTheme => Some(PlanckWorkbenchCommand::ChangeIconTheme),
-            PaletteKind::Language => Some(PlanckWorkbenchCommand::ChangeFileLanguage),
+            PaletteKind::Language => {
+                Some(PlanckWorkbenchCommand::ChangeFileLanguage)
+            }
             PaletteKind::LineEnding => {
                 Some(PlanckWorkbenchCommand::ChangeFileLineEnding)
             }
@@ -122,13 +112,9 @@ impl PaletteKind {
 
     pub fn get_input<'a>(&self, input: &'a str) -> &'a str {
         match self {
-            #[cfg(windows)]
-            PaletteKind::WslHost => input,
             PaletteKind::File
-            | PaletteKind::FileChooser
             | PaletteKind::Reference
-            | PaletteKind::SshHost
-            | PaletteKind::RunAndDebug
+            | PaletteKind::Run
             | PaletteKind::ColorTheme
             | PaletteKind::IconTheme
             | PaletteKind::Language

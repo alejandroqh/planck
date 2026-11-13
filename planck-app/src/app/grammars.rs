@@ -9,6 +9,12 @@ use planck_core::directory::Directory;
 
 use crate::{tracing::*, update::ReleaseInfo};
 
+/// Release of github.com/lapce/tree-sitter-grammars that stable builds use.
+/// The grammars are versioned with Lapce, not Planck, so this is pinned
+/// separately from Planck's own version. Debug and nightly builds always take
+/// the newest release.
+const GRAMMARS_VERSION: &str = "0.4.5";
+
 fn get_github_api(url: &str) -> Result<String> {
     let user_agent = format!("Planck/{}", planck_core::meta::VERSION);
     let resp = planck_proxy::get_url(url, Some(user_agent.as_str()))?;
@@ -21,10 +27,10 @@ fn get_github_api(url: &str) -> Result<String> {
 
 pub fn find_grammar_release() -> Result<ReleaseInfo> {
     let releases: Vec<ReleaseInfo> = serde_json::from_str(&get_github_api(
-        "https://api.github.com/repos/planck/tree-sitter-grammars/releases?per_page=100",
+        "https://api.github.com/repos/lapce/tree-sitter-grammars/releases?per_page=100",
     ).context("Failed to retrieve releases for tree-sitter-grammars")?)?;
 
-    use planck_core::meta::{RELEASE, ReleaseType, VERSION};
+    use planck_core::meta::{RELEASE, ReleaseType};
 
     let releases = releases
         .into_iter()
@@ -44,7 +50,7 @@ pub fn find_grammar_release() -> Result<ReleaseInfo> {
             use semver::Version;
 
             let sv = Version::parse(tag_name).ok()?;
-            let version = Version::parse(VERSION).ok()?;
+            let version = Version::parse(GRAMMARS_VERSION).ok()?;
 
             if matches!(sv.cmp_precedence(&version), Ordering::Equal) {
                 Some(f)

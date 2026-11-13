@@ -26,6 +26,26 @@ Planck started as a fork of [Lapce](https://github.com/lapce/lapce). It keeps La
 * No debugger (DAP).
 * Its own config directory. Planck never reads Lapce's settings.
 
+## Language servers
+
+Planck talks to language servers directly. A few common ones are configured by default (rust-analyzer, clangd, gopls, pyright, typescript-language-server) and start automatically when you open a matching file, as long as the server is installed and on your `PATH`.
+
+To add or change a server, add a `[lsp.<name>]` table to your `settings.toml` (or to `.planck/settings.toml` in a project):
+
+```toml
+[lsp.zls]
+command = "zls"
+languages = ["zig"]
+
+[lsp.rust-analyzer]
+initialization-options = { cargo = { features = "all" } }
+
+[lsp.pyright]
+disabled = true
+```
+
+`languages` takes [LSP language ids](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocumentItem). Each server starts the first time you open a file in one of its languages.
+
 ## Installation
 
 Pre-built releases for Windows, Linux and macOS are published on the [releases page](https://github.com/alejandroqh/planck/releases). To compile from source, follow the [guide](docs/building-from-source.md).

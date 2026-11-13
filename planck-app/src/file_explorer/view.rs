@@ -15,12 +15,12 @@ use floem::{
         virtual_stack,
     },
 };
+use lapce_xi_rope::Rope;
 use planck_core::selection::Selection;
 use planck_rpc::{
     file::{FileNodeViewData, FileNodeViewKind, Naming},
     source_control::FileDiffKind,
 };
-use lapce_xi_rope::Rope;
 
 use super::{data::FileExplorerData, node::FileNodeVirtualList};
 use crate::{
@@ -32,7 +32,6 @@ use crate::{
         data::PanelSection, kind::PanelKind, position::PanelPosition,
         view::PanelBuilder,
     },
-    plugin::PluginData,
     source_control::SourceControlData,
     text_input::TextInputBuilder,
     window_tab::{Focus, WindowTabData},
@@ -291,7 +290,9 @@ fn file_node_input_view(data: FileExplorerData, err: Option<String>) -> Containe
                     s.position(Position::Absolute)
                         .inset_top(ui_line_height.get())
                         .width_full()
-                        .color(config.color(PlanckColor::ERROR_LENS_ERROR_FOREGROUND))
+                        .color(
+                            config.color(PlanckColor::ERROR_LENS_ERROR_FOREGROUND),
+                        )
                         .background(background_color)
                         .z_index(100)
                 }),
@@ -383,7 +384,8 @@ fn file_explorer_view(
                                 .margin_horiz(6.0)
                                 .apply_if(is_dir, |s| {
                                     s.color(
-                                        config.color(PlanckColor::PLANCK_ICON_ACTIVE),
+                                        config
+                                            .color(PlanckColor::PLANCK_ICON_ACTIVE),
                                     )
                                 })
                                 .apply_if(!is_dir, |s| {
@@ -407,20 +409,18 @@ fn file_explorer_view(
                             .align_items(AlignItems::Center)
                             .hover(|s| {
                                 s.background(
-                                    config
-                                        .get()
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.get().color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                                 .cursor(CursorStyle::Pointer)
                             })
                             .apply_if(
                                 select.get().map(|x| x == kind).unwrap_or_default(),
                                 |x| {
-                                    x.background(
-                                        config.get().color(
-                                            PlanckColor::PANEL_CURRENT_BACKGROUND,
-                                        ),
-                                    )
+                                    x.background(config.get().color(
+                                        PlanckColor::PANEL_CURRENT_BACKGROUND,
+                                    ))
                                 },
                             )
                     }
@@ -502,16 +502,14 @@ fn open_editors_view(window_tab_data: Rc<WindowTabData>) -> impl View {
     let config = window_tab_data.common.config;
     let internal_command = window_tab_data.common.internal_command;
     let active_editor_tab = window_tab_data.main_split.active_editor_tab;
-    let plugin = window_tab_data.plugin.clone();
 
-    let child_view = move |plugin: PluginData,
-                           editor_tab: RwSignal<EditorTabData>,
+    let child_view = move |editor_tab: RwSignal<EditorTabData>,
                            child_index: RwSignal<usize>,
                            child: EditorTabChild| {
         let editor_tab_id =
             editor_tab.with_untracked(|editor_tab| editor_tab.editor_tab_id);
         let child_for_close = child.clone();
-        let info = child.view_info(editors, diff_editors, plugin, config);
+        let info = child.view_info(editors, diff_editors, config);
         let hovered = create_rw_signal(false);
 
         stack((
@@ -594,7 +592,6 @@ fn open_editors_view(window_tab_data: Rc<WindowTabData>) -> impl View {
             move || editor_tabs.get().into_iter().enumerate(),
             move |(index, (editor_tab_id, _))| (*index, *editor_tab_id),
             move |(index, (_, editor_tab))| {
-                let plugin = plugin.clone();
                 stack((
                     label(move || format!("Group {}", index + 1))
                         .style(|s| s.margin_left(10.0)),
@@ -602,12 +599,7 @@ fn open_editors_view(window_tab_data: Rc<WindowTabData>) -> impl View {
                         move || editor_tab.get().children,
                         move |(_, _, child)| child.id(),
                         move |(child_index, _, child)| {
-                            child_view(
-                                plugin.clone(),
-                                editor_tab,
-                                child_index,
-                                child,
-                            )
+                            child_view(editor_tab, child_index, child)
                         },
                     )
                     .style(|s| s.flex_col().width_pct(100.0)),

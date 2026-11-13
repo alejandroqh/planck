@@ -4,18 +4,16 @@ use floem::{
     View,
     event::EventListener,
     menu::{Menu, MenuItem},
-    peniko::Color,
     reactive::{
         Memo, ReadSignal, RwSignal, SignalGet, SignalUpdate, SignalWith, create_memo,
     },
-    style::{AlignItems, CursorStyle, JustifyContent},
+    style::{AlignItems, JustifyContent},
     views::{Decorators, container, drag_window_area, empty, label, stack, svg},
 };
 use planck_core::meta;
-use planck_rpc::proxy::ProxyStatus;
 
 use crate::{
-    app::{clickable_icon, not_clickable_icon, tooltip_label, window_menu},
+    app::{clickable_icon, not_clickable_icon, window_menu},
     command::{PlanckCommand, PlanckWorkbenchCommand, WindowCommand},
     config::{PlanckConfig, color::PlanckColor, icon::PlanckIcons},
     listener::Listener,
@@ -26,14 +24,11 @@ use crate::{
 };
 
 fn left(
-    workspace: Arc<PlanckWorkspace>,
     planck_command: Listener<PlanckCommand>,
     workbench_command: Listener<PlanckWorkbenchCommand>,
     config: ReadSignal<Arc<PlanckConfig>>,
-    proxy_status: RwSignal<Option<ProxyStatus>>,
     num_window_tabs: Memo<usize>,
 ) -> impl View {
-    let is_local = workspace.kind.is_local();
     let is_macos = cfg!(target_os = "macos");
     stack((
         empty().style(move |s| {
@@ -64,87 +59,6 @@ fn left(
             s.margin_left(4.0)
                 .margin_right(6.0)
                 .apply_if(is_macos, |s| s.hide())
-        }),
-        tooltip_label(
-            config,
-            container(svg(move || config.get().ui_svg(PlanckIcons::REMOTE)).style(
-                move |s| {
-                    let config = config.get();
-                    let size = (config.ui.icon_size() as f32 + 2.0).min(30.0);
-                    s.size(size, size).color(if is_local {
-                        config.color(PlanckColor::PLANCK_ICON_ACTIVE)
-                    } else {
-                        match proxy_status.get() {
-                            Some(_) => Color::WHITE,
-                            None => config.color(PlanckColor::PLANCK_ICON_ACTIVE),
-                        }
-                    })
-                },
-            )),
-            || "Connect to Remote",
-        )
-        .popout_menu(move || {
-            #[allow(unused_mut)]
-            let mut menu = Menu::new("").entry(
-                MenuItem::new("Connect to SSH Host").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::ConnectSshHost);
-                }),
-            );
-            if !is_local
-                && proxy_status.get().is_some_and(|p| {
-                    matches!(p, ProxyStatus::Connecting | ProxyStatus::Connected)
-                })
-            {
-                menu = menu.entry(MenuItem::new("Disconnect remote").action(
-                    move || {
-                        workbench_command
-                            .send(PlanckWorkbenchCommand::DisconnectRemote);
-                    },
-                ));
-            }
-            #[cfg(windows)]
-            {
-                menu = menu.entry(MenuItem::new("Connect to WSL Host").action(
-                    move || {
-                        workbench_command
-                            .send(PlanckWorkbenchCommand::ConnectWslHost);
-                    },
-                ));
-            }
-            menu
-        })
-        .style(move |s| {
-            let config = config.get();
-            let color = if is_local {
-                Color::TRANSPARENT
-            } else {
-                match proxy_status.get() {
-                    Some(ProxyStatus::Connected) => {
-                        config.color(PlanckColor::PLANCK_REMOTE_CONNECTED)
-                    }
-                    Some(ProxyStatus::Connecting) => {
-                        config.color(PlanckColor::PLANCK_REMOTE_CONNECTING)
-                    }
-                    Some(ProxyStatus::Disconnected) => {
-                        config.color(PlanckColor::PLANCK_REMOTE_DISCONNECTED)
-                    }
-                    None => Color::TRANSPARENT,
-                }
-            };
-            s.height_pct(100.0)
-                .padding_horiz(10.0)
-                .items_center()
-                .background(color)
-                .hover(|s| {
-                    s.cursor(CursorStyle::Pointer).background(
-                        config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
-                    )
-                })
-                .active(|s| {
-                    s.cursor(CursorStyle::Pointer).background(
-                        config.color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
-                    )
-                })
         }),
         drag_window_area(empty())
             .style(|s| s.height_pct(100.0).flex_basis(0.0).flex_grow(1.0f32)),
@@ -277,9 +191,7 @@ fn middle(
         stack((
             clickable_icon(
                 || PlanckIcons::START,
-                move || {
-                    workbench_command.send(PlanckWorkbenchCommand::PaletteRunAndDebug)
-                },
+                move || workbench_command.send(PlanckWorkbenchCommand::PaletteRun),
                 || false,
                 || false,
                 || "Run and Debug",
@@ -342,7 +254,8 @@ fn right(
             .popout_menu(move || {
                 Menu::new("")
                     .entry(MenuItem::new("Command Palette").action(move || {
-                        workbench_command.send(PlanckWorkbenchCommand::PaletteCommand)
+                        workbench_command
+                            .send(PlanckWorkbenchCommand::PaletteCommand)
                     }))
                     .separator()
                     .entry(MenuItem::new("Open Settings").action(move || {
@@ -368,8 +281,9 @@ fn right(
                         } else {
                             MenuItem::new(format!("Restart to update ({v})")).action(
                                 move || {
-                                    workbench_command
-                                        .send(PlanckWorkbenchCommand::RestartToUpdate)
+                                    workbench_command.send(
+                                        PlanckWorkbenchCommand::RestartToUpdate,
+                                    )
                                 },
                             )
                         }
@@ -423,21 +337,13 @@ pub fn title(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workbench_command = window_tab_data.common.workbench_command;
     let window_command = window_tab_data.common.window_common.window_command;
     let latest_release = window_tab_data.common.window_common.latest_release;
-    let proxy_status = window_tab_data.common.proxy_status;
     let num_window_tabs = window_tab_data.common.window_common.num_window_tabs;
     let window_maximized = window_tab_data.common.window_common.window_maximized;
     let title_height = window_tab_data.title_height;
     let update_in_progress = window_tab_data.update_in_progress;
     let config = window_tab_data.common.config;
     stack((
-        left(
-            workspace.clone(),
-            planck_command,
-            workbench_command,
-            config,
-            proxy_status,
-            num_window_tabs,
-        ),
+        left(planck_command, workbench_command, config, num_window_tabs),
         middle(
             workspace,
             window_tab_data.main_split.clone(),

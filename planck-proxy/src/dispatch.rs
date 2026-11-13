@@ -20,6 +20,13 @@ use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{SearcherBuilder, sinks::UTF8};
 use indexmap::IndexMap;
+use lapce_xi_rope::Rope;
+use lsp_types::{
+    CancelParams, MessageType, NumberOrString, Position, Range, ShowMessageParams,
+    TextDocumentItem, Url,
+    notification::{Cancel, Notification},
+};
+use parking_lot::Mutex;
 use planck_rpc::{
     RequestId, RpcError,
     buffer::BufferId,
@@ -34,13 +41,6 @@ use planck_rpc::{
     style::{LineStyle, SemanticStyles},
     terminal::TermId,
 };
-use lapce_xi_rope::Rope;
-use lsp_types::{
-    CancelParams, MessageType, NumberOrString, Position, Range, ShowMessageParams,
-    TextDocumentItem, Url,
-    notification::{Cancel, Notification},
-};
-use parking_lot::Mutex;
 
 use crate::{
     buffer::{Buffer, get_mod_time, load_file},
@@ -70,9 +70,7 @@ impl ProxyHandler for Dispatcher {
         match rpc {
             Initialize {
                 workspace,
-                disabled_volts,
-                extra_plugin_paths,
-                plugin_configurations,
+                lsp_servers,
                 window_id,
                 tab_id,
             } => {
@@ -94,9 +92,7 @@ impl ProxyHandler for Dispatcher {
                 thread::spawn(move || {
                     let mut plugin = PluginCatalog::new(
                         workspace,
-                        disabled_volts,
-                        extra_plugin_paths,
-                        plugin_configurations,
+                        lsp_servers,
                         plugin_rpc.clone(),
                     );
                     plugin_rpc.mainloop(&mut plugin);
@@ -177,8 +173,8 @@ impl ProxyHandler for Dispatcher {
                     buffer.rope.clone(),
                 );
             }
-            UpdatePluginConfigs { configs } => {
-                if let Err(err) = self.catalog_rpc.update_plugin_configs(configs) {
+            UpdateLspServers { servers } => {
+                if let Err(err) = self.catalog_rpc.update_lsp_servers(servers) {
                     tracing::error!("{:?}", err);
                 }
             }
@@ -237,102 +233,6 @@ impl ProxyHandler for Dispatcher {
             TerminalClose { term_id } => {
                 if let Some(tx) = self.terminals.remove(&term_id) {
                     tx.send(Msg::Shutdown);
-                }
-            }
-            DapStart {
-                config,
-                breakpoints,
-            } => {
-                if let Err(err) = self.catalog_rpc.dap_start(config, breakpoints) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapProcessId {
-                dap_id,
-                process_id,
-                term_id,
-            } => {
-                if let Err(err) =
-                    self.catalog_rpc.dap_process_id(dap_id, process_id, term_id)
-                {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapContinue { dap_id, thread_id } => {
-                if let Err(err) = self.catalog_rpc.dap_continue(dap_id, thread_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapPause { dap_id, thread_id } => {
-                if let Err(err) = self.catalog_rpc.dap_pause(dap_id, thread_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapStepOver { dap_id, thread_id } => {
-                if let Err(err) = self.catalog_rpc.dap_step_over(dap_id, thread_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapStepInto { dap_id, thread_id } => {
-                if let Err(err) = self.catalog_rpc.dap_step_into(dap_id, thread_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapStepOut { dap_id, thread_id } => {
-                if let Err(err) = self.catalog_rpc.dap_step_out(dap_id, thread_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapStop { dap_id } => {
-                if let Err(err) = self.catalog_rpc.dap_stop(dap_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapDisconnect { dap_id } => {
-                if let Err(err) = self.catalog_rpc.dap_disconnect(dap_id) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapRestart {
-                dap_id,
-                breakpoints,
-            } => {
-                if let Err(err) = self.catalog_rpc.dap_restart(dap_id, breakpoints) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            DapSetBreakpoints {
-                dap_id,
-                path,
-                breakpoints,
-            } => {
-                if let Err(err) =
-                    self.catalog_rpc
-                        .dap_set_breakpoints(dap_id, path, breakpoints)
-                {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            InstallVolt { volt } => {
-                let catalog_rpc = self.catalog_rpc.clone();
-                if let Err(err) = catalog_rpc.install_volt(volt) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            ReloadVolt { volt } => {
-                if let Err(err) = self.catalog_rpc.reload_volt(volt) {
-                    tracing::error!("{:?}", err);
-                }
-            }
-            RemoveVolt { volt } => {
-                self.catalog_rpc.remove_volt(volt);
-            }
-            DisableVolt { volt } => {
-                self.catalog_rpc.stop_volt(volt);
-            }
-            EnableVolt { volt } => {
-                if let Err(err) = self.catalog_rpc.enable_volt(volt) {
-                    tracing::error!("{:?}", err);
                 }
             }
             GitCommit { message, diffs } => {
@@ -1118,30 +1018,6 @@ impl ProxyHandler for Dispatcher {
                         proxy_rpc.handle_response(id, result);
                     },
                 );
-            }
-            DapVariable { dap_id, reference } => {
-                let proxy_rpc = self.proxy_rpc.clone();
-                self.catalog_rpc
-                    .dap_variable(dap_id, reference, move |result| {
-                        proxy_rpc.handle_response(
-                            id,
-                            result.map(|resp| ProxyResponse::DapVariableResponse {
-                                variables: resp,
-                            }),
-                        );
-                    });
-            }
-            DapGetScopes { dap_id, frame_id } => {
-                let proxy_rpc = self.proxy_rpc.clone();
-                self.catalog_rpc
-                    .dap_get_scopes(dap_id, frame_id, move |result| {
-                        proxy_rpc.handle_response(
-                            id,
-                            result.map(|resp| ProxyResponse::DapGetScopesResponse {
-                                scopes: resp,
-                            }),
-                        );
-                    });
             }
             GetCodeLens { path } => {
                 let proxy_rpc = self.proxy_rpc.clone();

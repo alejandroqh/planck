@@ -50,6 +50,8 @@ use floem::{
     },
     window::{ResizeDirection, WindowConfig, WindowId},
 };
+use lsp_types::{CompletionItemKind, MessageType, ShowMessageParams};
+use notify::Watcher;
 use planck_core::{
     command::{EditCommand, FocusCommand},
     directory::Directory,
@@ -61,8 +63,6 @@ use planck_rpc::{
     core::{CoreMessage, CoreNotification},
     file::PathObject,
 };
-use lsp_types::{CompletionItemKind, MessageType, ShowMessageParams};
-use notify::Watcher;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{filter::Targets, reload::Handle};
 
@@ -78,7 +78,6 @@ use crate::{
         watcher::ConfigWatcher,
     },
     db::PlanckDb,
-    debug::RunDebugMode,
     editor::{
         diff::diff_show_more_section_view,
         location::{EditorLocation, EditorPosition},
@@ -99,7 +98,6 @@ use crate::{
         item::{PaletteItem, PaletteItemContent},
     },
     panel::{position::PanelContainerPosition, view::panel_container_view},
-    plugin::{PluginData, plugin_info_view},
     settings::{settings_view, theme_color_settings_view},
     status::status,
     text_input::TextInputBuilder,
@@ -108,7 +106,7 @@ use crate::{
     update::ReleaseInfo,
     window::{TabsInfo, WindowData, WindowInfo},
     window_tab::{Focus, WindowTabData},
-    workspace::{PlanckWorkspace, PlanckWorkspaceType},
+    workspace::PlanckWorkspace,
 };
 
 mod grammars;
@@ -125,14 +123,6 @@ struct Cli {
     /// Don't return instantly when opened in a terminal
     #[clap(short, long, action)]
     wait: bool,
-
-    /// Path(s) to plugins to load.
-    ///
-    /// This is primarily used for plugin development to make it easier to test changes to the
-    /// plugin without needing to copy the plugin to the plugins directory.
-    /// This will cause any plugin with the same author & name to not run.
-    #[clap(long, action)]
-    plugin_path: Vec<PathBuf>,
 
     /// Paths to file(s) and/or folder(s) to open.
     /// When path is a file (that exists or not),
@@ -169,14 +159,11 @@ pub struct AppData {
     pub watcher: Arc<notify::RecommendedWatcher>,
     pub tracing_handle: Handle<Targets>,
     pub config: RwSignal<Arc<PlanckConfig>>,
-    /// Paths to extra plugins to load
-    pub plugin_paths: Arc<Vec<PathBuf>>,
 }
 
 impl AppData {
     pub fn reload_config(&self) {
-        let config =
-            PlanckConfig::load(&PlanckWorkspace::default(), &[], &self.plugin_paths);
+        let config = PlanckConfig::load(&PlanckWorkspace::default());
 
         self.config.set(Arc::new(config));
         self.window_scale.set(self.config.get().ui.scale());
@@ -328,21 +315,6 @@ impl AppData {
                 .unwrap_or_else(|_| (Size::new(800.0, 600.0), Point::new(0.0, 0.0)));
 
             for dir in dirs {
-                #[cfg(windows)]
-                let workspace_type = if !std::env::var("WSL_DISTRO_NAME")
-                    .unwrap_or_default()
-                    .is_empty()
-                    || !std::env::var("WSL_INTEROP").unwrap_or_default().is_empty()
-                {
-                    PlanckWorkspaceType::RemoteWSL(crate::workspace::WslHost {
-                        host: String::new(),
-                    })
-                } else {
-                    PlanckWorkspaceType::Local
-                };
-                #[cfg(not(windows))]
-                let workspace_type = PlanckWorkspaceType::Local;
-
                 let info = WindowInfo {
                     size,
                     pos,
@@ -350,7 +322,6 @@ impl AppData {
                     tabs: TabsInfo {
                         active_tab: 0,
                         workspaces: vec![PlanckWorkspace {
-                            kind: workspace_type,
                             path: Some(dir.path.to_owned()),
                             last_open: 0,
                         }],
@@ -464,7 +435,6 @@ impl AppData {
             info,
             self.window_scale,
             self.latest_release.read_only(),
-            self.plugin_paths.clone(),
             self.app_command,
         );
 
@@ -687,7 +657,6 @@ fn editor_tab_header(
     dragging: RwSignal<Option<(RwSignal<usize>, EditorTabId)>>,
 ) -> impl View {
     let main_split = window_tab_data.main_split.clone();
-    let plugin = window_tab_data.plugin.clone();
     let editors = window_tab_data.main_split.editors;
     let diff_editors = window_tab_data.main_split.diff_editors;
     let focus = window_tab_data.common.focus;
@@ -730,9 +699,8 @@ fn editor_tab_header(
         let child_for_mouse_close = child.clone();
         let child_for_mouse_close_2 = child.clone();
         let main_split = main_split.clone();
-        let plugin = plugin.clone();
         let child_view = {
-            let info = child.view_info(editors, diff_editors, plugin, config);
+            let info = child.view_info(editors, diff_editors, config);
             let hovered = create_rw_signal(false);
 
             use crate::config::ui::TabCloseButton;
@@ -1228,7 +1196,6 @@ fn editor_tab_header(
 
 fn editor_tab_content(
     window_tab_data: Rc<WindowTabData>,
-    plugin: PluginData,
     active_editor_tab: ReadSignal<Option<EditorTabId>>,
     editor_tab: RwSignal<EditorTabData>,
 ) -> impl View {
@@ -1406,16 +1373,11 @@ fn editor_tab_content(
                     text("empty diff editor").into_any()
                 }
             }
-            EditorTabChild::Settings(_) => {
-                settings_view(plugin.installed, editors, common).into_any()
-            }
+            EditorTabChild::Settings(_) => settings_view(editors, common).into_any(),
             EditorTabChild::ThemeColorSettings(_) => {
                 theme_color_settings_view(editors, common).into_any()
             }
             EditorTabChild::Keymap(_) => keymap_view(editors, common).into_any(),
-            EditorTabChild::Volt(_, id) => {
-                plugin_info_view(plugin.clone(), id).into_any()
-            }
         };
         child.style(|s| s.size_full())
     };
@@ -1437,7 +1399,6 @@ enum DragOverPosition {
 
 fn editor_tab(
     window_tab_data: Rc<WindowTabData>,
-    plugin: PluginData,
     active_editor_tab: ReadSignal<Option<EditorTabId>>,
     editor_tab: RwSignal<EditorTabData>,
     dragging: RwSignal<Option<(RwSignal<usize>, EditorTabId)>>,
@@ -1462,7 +1423,6 @@ fn editor_tab(
         stack((
             editor_tab_content(
                 window_tab_data.clone(),
-                plugin.clone(),
                 active_editor_tab,
                 editor_tab,
             ),
@@ -1907,7 +1867,6 @@ fn split_border(
 fn split_list(
     split: ReadSignal<SplitData>,
     window_tab_data: Rc<WindowTabData>,
-    plugin: PluginData,
     dragging: RwSignal<Option<(RwSignal<usize>, EditorTabId)>>,
 ) -> impl View {
     let main_split = window_tab_data.main_split.clone();
@@ -1929,7 +1888,6 @@ fn split_list(
             usize,
             (RwSignal<f64>, SplitContent),
         )| {
-            let plugin = plugin.clone();
             let child = match &content {
                 SplitContent::EditorTab(editor_tab_id) => {
                     let editor_tab_data = editor_tabs
@@ -1937,7 +1895,6 @@ fn split_list(
                     if let Some(editor_tab_data) = editor_tab_data {
                         editor_tab(
                             window_tab_data.clone(),
-                            plugin.clone(),
                             active_editor_tab,
                             editor_tab_data,
                             dragging,
@@ -1954,7 +1911,6 @@ fn split_list(
                         split_list(
                             split.read_only(),
                             window_tab_data.clone(),
-                            plugin.clone(),
                             dragging,
                         )
                         .into_any()
@@ -2041,27 +1997,21 @@ fn main_split(window_tab_data: Rc<WindowTabData>) -> impl View {
         .read_only();
     let config = window_tab_data.main_split.common.config;
     let panel = window_tab_data.panel.clone();
-    let plugin = window_tab_data.plugin.clone();
     let dragging: RwSignal<Option<(RwSignal<usize>, EditorTabId)>> =
         create_rw_signal(None);
-    split_list(
-        root_split,
-        window_tab_data.clone(),
-        plugin.clone(),
-        dragging,
-    )
-    .style(move |s| {
-        let config = config.get();
-        let is_hidden = panel.panel_bottom_maximized(true)
-            && panel.is_container_shown(&PanelContainerPosition::Bottom, true);
-        s.border_color(config.color(PlanckColor::PLANCK_BORDER))
-            .background(config.color(PlanckColor::EDITOR_BACKGROUND))
-            .apply_if(is_hidden, |s| s.display(Display::None))
-            .width_full()
-            .flex_grow(1.0f32)
-            .flex_basis(0.0)
-    })
-    .debug_name("Main Split")
+    split_list(root_split, window_tab_data.clone(), dragging)
+        .style(move |s| {
+            let config = config.get();
+            let is_hidden = panel.panel_bottom_maximized(true)
+                && panel.is_container_shown(&PanelContainerPosition::Bottom, true);
+            s.border_color(config.color(PlanckColor::PLANCK_BORDER))
+                .background(config.color(PlanckColor::EDITOR_BACKGROUND))
+                .apply_if(is_hidden, |s| s.display(Display::None))
+                .width_full()
+                .flex_grow(1.0f32)
+                .flex_basis(0.0)
+        })
+        .debug_name("Main Split")
 }
 
 pub fn not_clickable_icon<S: std::fmt::Display + 'static>(
@@ -2450,12 +2400,8 @@ fn palette_item(
                 .style(|s| s.align_items(Some(AlignItems::Center)).max_width_full()),
             )
         }
-        PaletteItemContent::RunAndDebug {
-            mode,
-            config: run_config,
-        } => {
-            let mode = *mode;
-            let text = format!("{mode} {}", run_config.name);
+        PaletteItemContent::Run { config: run_config } => {
+            let text = format!("Run {}", run_config.name);
             let hint = format!(
                 "{} {}",
                 run_config.program,
@@ -2483,21 +2429,16 @@ fn palette_item(
                 .collect();
             container(
                 stack((
-                    svg(move || {
-                        let config = config.get();
-                        match mode {
-                            RunDebugMode::Run => config.ui_svg(PlanckIcons::START),
-                            RunDebugMode::Debug => config.ui_svg(PlanckIcons::DEBUG),
-                        }
-                    })
-                    .style(move |s| {
-                        let config = config.get();
-                        let size = config.ui.icon_size() as f32;
-                        s.min_width(size)
-                            .size(size, size)
-                            .margin_right(5.0)
-                            .color(config.color(PlanckColor::PLANCK_ICON_ACTIVE))
-                    }),
+                    svg(move || config.get().ui_svg(PlanckIcons::START)).style(
+                        move |s| {
+                            let config = config.get();
+                            let size = config.ui.icon_size() as f32;
+                            s.min_width(size)
+                                .size(size, size)
+                                .margin_right(5.0)
+                                .color(config.color(PlanckColor::PLANCK_ICON_ACTIVE))
+                        },
+                    ),
                     focus_text(
                         move || text.clone(),
                         move || text_indices.clone(),
@@ -2556,7 +2497,9 @@ fn palette_item(
                                     .border(1.0)
                                     .border_radius(3.0)
                                     .border_color(
-                                        config.get().color(PlanckColor::PLANCK_BORDER),
+                                        config
+                                            .get()
+                                            .color(PlanckColor::PLANCK_BORDER),
                                     )
                                     .selectable(false)
                             })
@@ -2568,89 +2511,12 @@ fn palette_item(
         }
         PaletteItemContent::Line { .. }
         | PaletteItemContent::Workspace { .. }
-        | PaletteItemContent::SshHost { .. }
         | PaletteItemContent::Language { .. }
         | PaletteItemContent::LineEnding { .. }
         | PaletteItemContent::ColorTheme { .. }
         | PaletteItemContent::SCMReference { .. }
         | PaletteItemContent::TerminalProfile { .. }
         | PaletteItemContent::IconTheme { .. } => {
-            let text = item.filter_text;
-            let indices = item.indices;
-            container(
-                focus_text(
-                    move || text.clone(),
-                    move || indices.clone(),
-                    move || config.get().color(PlanckColor::EDITOR_FOCUS),
-                )
-                .style(|s| s.align_items(Some(AlignItems::Center)).max_width_full()),
-            )
-        }
-        PaletteItemContent::FileChooserEntry { is_dir, .. } => {
-            let file_name = item.filter_text;
-            let indices = item.indices;
-
-            let (svg_path, svg_color) = (
-                config.get().ui_svg(if *is_dir {
-                    PlanckIcons::DIRECTORY_CLOSED
-                } else {
-                    PlanckIcons::FILE
-                }),
-                Some(config.get().color(PlanckColor::PLANCK_ICON_ACTIVE)),
-            );
-            container(
-                stack((
-                    svg(move || svg_path.clone()).style(move |s| {
-                        let config = config.get();
-                        let size = config.ui.icon_size() as f32;
-                        let color = svg_color;
-                        s.min_width(size)
-                            .size(size, size)
-                            .margin_right(5.0)
-                            .apply_opt(color, Style::color)
-                    }),
-                    focus_text(
-                        move || file_name.clone(),
-                        move || indices.clone(),
-                        move || config.get().color(PlanckColor::EDITOR_FOCUS),
-                    )
-                    .style(|s| s.margin_right(6.0).max_width_full()),
-                ))
-                .style(|s| s.align_items(Some(AlignItems::Center)).max_width_full()),
-            )
-        }
-        PaletteItemContent::ConfirmFileChooserEntry { .. } => {
-            let text = format!("Open {}", item.filter_text);
-            let indices = item.indices;
-
-            let (svg_path, svg_color) = (
-                config.get().ui_svg(PlanckIcons::ADD),
-                Some(config.get().color(PlanckColor::PLANCK_ICON_ACTIVE)),
-            );
-
-            container(
-                stack((
-                    svg(move || svg_path.clone()).style(move |s| {
-                        let config = config.get();
-                        let size = config.ui.icon_size() as f32;
-                        let color = svg_color;
-                        s.min_width(size)
-                            .size(size, size)
-                            .margin_right(5.0)
-                            .apply_opt(color, Style::color)
-                    }),
-                    focus_text(
-                        move || text.clone(),
-                        move || indices.clone(),
-                        move || config.get().color(PlanckColor::EDITOR_FOCUS),
-                    )
-                    .style(|s| s.margin_right(6.0).max_width_full()),
-                ))
-                .style(|s| s.align_items(Some(AlignItems::Center)).max_width_full()),
-            )
-        }
-        #[cfg(windows)]
-        PaletteItemContent::WslHost { .. } => {
             let text = item.filter_text;
             let indices = item.indices;
             container(
@@ -3190,8 +3056,9 @@ fn completion(window_tab_data: Rc<WindowTabData>) -> impl View {
                             })
                             .hover(move |s| {
                                 s.background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                     }),
@@ -3285,8 +3152,9 @@ fn code_action(window_tab_data: Rc<WindowTabData>) -> impl View {
                             })
                             .hover(move |s| {
                                 s.background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                     })
@@ -3439,12 +3307,7 @@ fn window_tab(window_tab_data: Rc<WindowTabData>) -> impl View {
 fn workspace_title(workspace: &PlanckWorkspace) -> Option<String> {
     let p = workspace.path.as_ref()?;
     let dir = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
-    Some(match &workspace.kind {
-        PlanckWorkspaceType::Local => format!("{dir}"),
-        PlanckWorkspaceType::RemoteSSH(remote) => format!("{dir} [{remote}]"),
-        #[cfg(windows)]
-        PlanckWorkspaceType::RemoteWSL(remote) => format!("{dir} [{remote}]"),
-    })
+    Some(dir.to_string())
 }
 
 fn workspace_tab_header(window_data: WindowData) -> impl View {
@@ -3872,7 +3735,7 @@ pub fn launch() {
         return;
     }
 
-    // If the cli is not requesting a new window, and we're not developing a plugin, we try to open
+    // If the cli is not requesting a new window, we try to open
     // in the existing Planck process
     if !cli.new {
         match get_socket() {
@@ -3898,7 +3761,10 @@ pub fn launch() {
         Ok(db) => Arc::new(db),
         Err(e) => {
             #[cfg(windows)]
-            logging::error_modal("Error", &format!("Failed to create PlanckDb: {e}"));
+            logging::error_modal(
+                "Error",
+                &format!("Failed to create PlanckDb: {e}"),
+            );
 
             trace!(TraceLevel::ERROR, "Failed to create PlanckDb: {e}");
             std::process::exit(1);
@@ -3910,8 +3776,6 @@ pub fn launch() {
     let window_scale = scope.create_rw_signal(1.0);
     let latest_release = scope.create_rw_signal(Arc::new(None));
     let app_command = Listener::new_empty(scope);
-
-    let plugin_paths = Arc::new(cli.plugin_path);
 
     let (tx, rx) = channel();
     let mut watcher = notify::recommended_watcher(ConfigWatcher::new(tx))
@@ -3932,14 +3796,9 @@ pub fn launch() {
             tracing::error!("{:?}", err);
         }
     }
-    if let Some(path) = Directory::plugins_directory() {
-        if let Err(err) = watcher.watch(&path, notify::RecursiveMode::Recursive) {
-            tracing::error!("{:?}", err);
-        }
-    }
 
     let windows = scope.create_rw_signal(im::HashMap::new());
-    let config = PlanckConfig::load(&PlanckWorkspace::default(), &[], &plugin_paths);
+    let config = PlanckConfig::load(&PlanckWorkspace::default());
 
     // Restore scale from config
     window_scale.set(config.ui.scale());
@@ -3955,7 +3814,6 @@ pub fn launch() {
         app_command,
         tracing_handle: reload_handle,
         config,
-        plugin_paths,
     };
 
     let app = app_data.create_windows(db.clone(), cli.paths);

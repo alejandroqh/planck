@@ -16,15 +16,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    RequestId, RpcError, RpcMessage,
-    dap_types::{
-        self, DapId, RunDebugConfig, Scope, StackFrame, Stopped, ThreadId, Variable,
-    },
-    file::PathObject,
-    plugin::{PluginId, VoltInfo, VoltMetadata},
-    proxy::ProxyStatus,
-    source_control::DiffInfo,
-    terminal::TermId,
+    RequestId, RpcError, RpcMessage, file::PathObject, plugin::PluginId,
+    proxy::ProxyStatus, source_control::DiffInfo, terminal::TermId,
 };
 
 pub enum CoreRpc {
@@ -89,22 +82,6 @@ pub enum CoreNotification {
     HomeDir {
         path: PathBuf,
     },
-    VoltInstalled {
-        volt: VoltMetadata,
-        icon: Option<Vec<u8>>,
-    },
-    VoltInstalling {
-        volt: VoltInfo,
-        error: String,
-    },
-    VoltRemoving {
-        volt: VoltMetadata,
-        error: String,
-    },
-    VoltRemoved {
-        volt: VoltInfo,
-        only_installing: bool,
-    },
     DiffInfo {
         diff: DiffInfo,
     },
@@ -124,27 +101,10 @@ pub enum CoreNotification {
         term_id: TermId,
         exit_code: Option<i32>,
     },
-    RunInTerminal {
-        config: RunDebugConfig,
-    },
     Log {
         level: LogLevel,
         message: String,
         target: Option<String>,
-    },
-    DapStopped {
-        dap_id: DapId,
-        stopped: Stopped,
-        stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
-        variables: Vec<(Scope, Vec<Variable>)>,
-    },
-    DapContinued {
-        dap_id: DapId,
-    },
-    DapBreakpointsResp {
-        dap_id: DapId,
-        path: PathBuf,
-        breakpoints: Vec<dap_types::Breakpoint>,
     },
 }
 
@@ -290,29 +250,6 @@ impl CoreRpcHandler {
         });
     }
 
-    pub fn volt_installed(&self, volt: VoltMetadata, icon: Option<Vec<u8>>) {
-        self.notification(CoreNotification::VoltInstalled { volt, icon });
-    }
-
-    pub fn volt_installing(&self, volt: VoltInfo, error: String) {
-        self.notification(CoreNotification::VoltInstalling { volt, error });
-    }
-
-    pub fn volt_removing(&self, volt: VoltMetadata, error: String) {
-        self.notification(CoreNotification::VoltRemoving { volt, error });
-    }
-
-    pub fn volt_removed(&self, volt: VoltInfo, only_installing: bool) {
-        self.notification(CoreNotification::VoltRemoved {
-            volt,
-            only_installing,
-        });
-    }
-
-    pub fn run_in_terminal(&self, config: RunDebugConfig) {
-        self.notification(CoreNotification::RunInTerminal { config });
-    }
-
     pub fn log(&self, level: LogLevel, message: String, target: Option<String>) {
         self.notification(CoreNotification::Log {
             level,
@@ -365,38 +302,6 @@ impl CoreRpcHandler {
 
     pub fn update_terminal(&self, term_id: TermId, content: Vec<u8>) {
         self.notification(CoreNotification::UpdateTerminal { term_id, content });
-    }
-
-    pub fn dap_stopped(
-        &self,
-        dap_id: DapId,
-        stopped: Stopped,
-        stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
-        variables: Vec<(Scope, Vec<Variable>)>,
-    ) {
-        self.notification(CoreNotification::DapStopped {
-            dap_id,
-            stopped,
-            stack_frames,
-            variables,
-        });
-    }
-
-    pub fn dap_continued(&self, dap_id: DapId) {
-        self.notification(CoreNotification::DapContinued { dap_id });
-    }
-
-    pub fn dap_breakpoints_resp(
-        &self,
-        dap_id: DapId,
-        path: PathBuf,
-        breakpoints: Vec<dap_types::Breakpoint>,
-    ) {
-        self.notification(CoreNotification::DapBreakpointsResp {
-            dap_id,
-            path,
-            breakpoints,
-        });
     }
 
     pub fn home_dir(&self, path: PathBuf) {

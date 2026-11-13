@@ -32,6 +32,13 @@ use floem::{
     },
 };
 use itertools::Itertools;
+use lapce_xi_rope::{Rope, RopeDelta, Transformer};
+use lsp_types::{
+    CodeActionResponse, CompletionItem, CompletionTextEdit, GotoDefinitionResponse,
+    HoverContents, InlayHint, InlayHintLabel, InlineCompletionTriggerKind, Location,
+    MarkedString, MarkupKind, Range, TextEdit,
+};
+use nucleo::Utf32Str;
 use planck_core::{
     buffer::{
         InvalLines,
@@ -49,13 +56,6 @@ use planck_core::{
     selection::{InsertDrift, SelRegion, Selection},
 };
 use planck_rpc::{buffer::BufferId, plugin::PluginId, proxy::ProxyResponse};
-use lapce_xi_rope::{Rope, RopeDelta, Transformer};
-use lsp_types::{
-    CodeActionResponse, CompletionItem, CompletionTextEdit, GotoDefinitionResponse,
-    HoverContents, InlayHint, InlayHintLabel, InlineCompletionTriggerKind, Location,
-    MarkedString, MarkupKind, Range, TextEdit,
-};
-use nucleo::Utf32Str;
 use serde::{Deserialize, Serialize};
 use view::StickyHeaderInfo;
 
@@ -2124,7 +2124,6 @@ impl EditorData {
         for (_, delta, _) in deltas {
             // self.inactive_apply_delta(delta);
             self.update_snippet_offset(delta);
-            // self.update_breakpoints(delta);
         }
         // self.update_signature();
     }
@@ -2926,7 +2925,7 @@ impl EditorData {
                     Some(CommandKind::Edit(EditCommand::ClipboardCopy)),
                     Some(CommandKind::Edit(EditCommand::ClipboardPaste)),
                     Some(CommandKind::Workbench(
-                        PlanckWorkbenchCommand::AddRunDebugConfig,
+                        PlanckWorkbenchCommand::AddRunConfig,
                     )),
                     None,
                     Some(CommandKind::Workbench(

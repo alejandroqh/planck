@@ -10,9 +10,10 @@ use alacritty_terminal::{
 use anyhow::anyhow;
 use floem::{
     keyboard::{Key, KeyEvent, Modifiers, NamedKey},
-    reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
+    reactive::{RwSignal, Scope, SignalGet, SignalUpdate},
     views::editor::text::SystemClipboard,
 };
+use parking_lot::RwLock;
 use planck_core::{
     command::{EditCommand, FocusCommand, ScrollCommand},
     mode::{Mode, VisualMode},
@@ -20,10 +21,9 @@ use planck_core::{
     register::Clipboard,
 };
 use planck_rpc::{
-    dap_types::RunDebugConfig,
+    run::RunConfig,
     terminal::{TermId, TerminalProfile},
 };
-use parking_lot::RwLock;
 use url::Url;
 
 use super::{
@@ -32,8 +32,8 @@ use super::{
 };
 use crate::{
     command::{CommandExecuted, CommandKind, InternalCommand},
-    debug::{RunDebugMode, RunDebugProcess},
     keypress::{KeyPressFocus, condition::Condition},
+    run::RunProcess,
     window_tab::CommonData,
     workspace::PlanckWorkspace,
 };
@@ -48,7 +48,7 @@ pub struct TerminalData {
     pub mode: RwSignal<Mode>,
     pub visual_mode: RwSignal<VisualMode>,
     pub raw: RwSignal<Arc<RwLock<RawTerminal>>>,
-    pub run_debug: RwSignal<Option<RunDebugProcess>>,
+    pub run_debug: RwSignal<Option<RunProcess>>,
     pub common: Rc<CommonData>,
 }
 
@@ -316,7 +316,7 @@ impl TerminalData {
     pub fn new_run_debug(
         cx: Scope,
         workspace: Arc<PlanckWorkspace>,
-        run_debug: Option<RunDebugProcess>,
+        run_debug: Option<RunProcess>,
         profile: Option<TerminalProfile>,
         common: Rc<CommonData>,
     ) -> Self {
@@ -362,7 +362,7 @@ impl TerminalData {
     fn new_raw_terminal(
         workspace: &PlanckWorkspace,
         term_id: TermId,
-        run_debug: Option<&RunDebugProcess>,
+        run_debug: Option<&RunProcess>,
         profile: Option<TerminalProfile>,
         common: Rc<CommonData>,
         launch_error: RwSignal<Option<String>>,
@@ -716,7 +716,7 @@ impl TerminalData {
         term.selection = Some(Selection::new(ty, point, side));
     }
 
-    pub fn new_process(&self, run_debug: Option<RunDebugProcess>) {
+    pub fn new_process(&self, run_debug: Option<RunProcess>) {
         let (width, height) = {
             let raw = self.raw.get_untracked();
             let raw = raw.read();
@@ -745,21 +745,11 @@ impl TerminalData {
     }
 
     pub fn stop(&self) {
-        if let Some(dap_id) = self.run_debug.with_untracked(|x| {
-            if let Some(process) = x {
-                if !process.is_prelaunch && process.mode == RunDebugMode::Debug {
-                    return Some(process.config.dap_id);
-                }
-            }
-            None
-        }) {
-            self.common.proxy.dap_stop(dap_id);
-        }
         self.common.proxy.terminal_close(self.term_id);
     }
 }
 
-/// [`RunDebugConfig`] with expanded out program/arguments/etc. Used for creating the terminal.
+/// [`RunConfig`] with expanded out program/arguments/etc. Used for creating the terminal.
 #[derive(Debug, Clone)]
 pub struct ExpandedRunDebug {
     pub work_dir: Option<Url>,
@@ -770,7 +760,7 @@ pub struct ExpandedRunDebug {
 impl ExpandedRunDebug {
     pub fn expand(
         workspace: &PlanckWorkspace,
-        run_debug: &RunDebugConfig,
+        run_debug: &RunConfig,
         is_prelaunch: bool,
     ) -> anyhow::Result<Self> {
         // Get the current working directory variable, which can container ${workspace}
@@ -783,27 +773,15 @@ impl ExpandedRunDebug {
         let env = run_debug.env.clone();
 
         // TODO: replace some variables in the args
-        let (program, mut args) =
-            if let Some(debug_command) = run_debug.debug_command.as_ref() {
-                let mut args = debug_command.to_owned();
-                let command = args.first().cloned().unwrap_or_default();
-                if !args.is_empty() {
-                    args.remove(0);
-                }
-
-                let args = if !args.is_empty() { Some(args) } else { None };
-                (command, args)
-            } else if let Some(prelaunch) = prelaunch {
-                (prelaunch.program.clone(), prelaunch.args.clone())
-            } else {
-                (run_debug.program.clone(), run_debug.args.clone())
-            };
+        let (program, mut args) = if let Some(prelaunch) = prelaunch {
+            (prelaunch.program.clone(), prelaunch.args.clone())
+        } else {
+            (run_debug.program.clone(), run_debug.args.clone())
+        };
         let mut program = if program == "${planck}" {
             std::env::current_exe()
                 .map_err(|e| {
-                    anyhow!(
-                        "Failed to get current exe for ${{planck}} run and debug: {e}"
-                    )
+                    anyhow!("Failed to get current exe for ${{planck}} run: {e}")
                 })?
                 .to_str()
                 .ok_or_else(|| anyhow!("Failed to convert ${{planck}} path to str"))?
@@ -842,7 +820,7 @@ impl ExpandedRunDebug {
 
     fn expand_work_dir(
         workspace: &PlanckWorkspace,
-        run_debug: &RunDebugConfig,
+        run_debug: &RunConfig,
     ) -> Option<Url> {
         let path = run_debug.cwd.as_ref()?;
 

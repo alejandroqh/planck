@@ -6,24 +6,23 @@ use floem::{
     views::editor::command::Command,
 };
 use indexmap::IndexMap;
+use lsp_types::{CodeActionOrCommand, Position, WorkspaceEdit};
 use planck_core::command::{
     EditCommand, FocusCommand, MotionModeCommand, MoveCommand,
     MultiSelectionCommand, ScrollCommand,
 };
 use planck_rpc::{
-    dap_types::{DapId, RunDebugConfig},
-    plugin::{PluginId, VoltID},
+    plugin::PluginId,
     proxy::ProxyStatus,
+    run::RunConfig,
     terminal::{TermId, TerminalProfile},
 };
-use lsp_types::{CodeActionOrCommand, Position, WorkspaceEdit};
 use serde_json::Value;
 use strum::{EnumMessage, IntoEnumIterator};
 use strum_macros::{Display, EnumIter, EnumString, IntoStaticStr};
 
 use crate::{
     alert::AlertButton,
-    debug::RunDebugMode,
     doc::Doc,
     editor::location::EditorLocation,
     editor_tab::EditorTabChild,
@@ -285,10 +284,6 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Open Themes Directory")]
     OpenThemesDirectory,
 
-    #[strum(serialize = "open_plugins_directory")]
-    #[strum(message = "Open Plugins Directory")]
-    OpenPluginsDirectory,
-
     #[strum(serialize = "open_grammars_directory")]
     #[strum(message = "Open Grammars Directory")]
     OpenGrammarsDirectory,
@@ -357,19 +352,6 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "new_file")]
     NewFile,
 
-    #[strum(serialize = "connect_ssh_host")]
-    #[strum(message = "Connect to SSH Host")]
-    ConnectSshHost,
-
-    #[cfg(windows)]
-    #[strum(serialize = "connect_wsl_host")]
-    #[strum(message = "Connect to WSL Host")]
-    ConnectWslHost,
-
-    #[strum(serialize = "disconnect_remote")]
-    #[strum(message = "Disconnect From Remote")]
-    DisconnectRemote,
-
     #[strum(message = "Go To Line")]
     #[strum(serialize = "palette.line")]
     PaletteLine,
@@ -394,9 +376,9 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "palette.workspace")]
     PaletteWorkspace,
 
-    #[strum(message = "Run and Debug")]
-    #[strum(serialize = "palette.run_and_debug")]
-    PaletteRunAndDebug,
+    #[strum(message = "Run")]
+    #[strum(serialize = "palette.run")]
+    PaletteRun,
 
     #[strum(message = "Source Control: Checkout")]
     #[strum(serialize = "palette.scm_references")]
@@ -410,13 +392,13 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "palette.palette_help_and_file")]
     PaletteHelpAndFile,
 
-    #[strum(message = "Run and Debug Restart Current Running")]
-    #[strum(serialize = "palette.run_and_debug_restart")]
-    RunAndDebugRestart,
+    #[strum(message = "Run: Restart Current")]
+    #[strum(serialize = "palette.run_restart")]
+    RunRestart,
 
-    #[strum(message = "Run and Debug Stop Current Running")]
-    #[strum(serialize = "palette.run_and_debug_stop")]
-    RunAndDebugStop,
+    #[strum(message = "Run: Stop Current")]
+    #[strum(serialize = "palette.run_stop")]
+    RunStop,
 
     #[strum(serialize = "source_control.checkout_reference")]
     CheckoutReference,
@@ -458,10 +440,6 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "toggle_source_control_focus")]
     ToggleSourceControlFocus,
 
-    #[strum(message = "Toggle Plugin Focus")]
-    #[strum(serialize = "toggle_plugin_focus")]
-    TogglePluginFocus,
-
     #[strum(message = "Toggle File Explorer Focus")]
     #[strum(serialize = "toggle_file_explorer_focus")]
     ToggleFileExplorerFocus,
@@ -481,17 +459,11 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "toggle_source_control_visual")]
     ToggleSourceControlVisual,
 
-    #[strum(serialize = "toggle_plugin_visual")]
-    TogglePluginVisual,
-
     #[strum(serialize = "toggle_file_explorer_visual")]
     ToggleFileExplorerVisual,
 
     #[strum(serialize = "toggle_problem_visual")]
     ToggleProblemVisual,
-
-    #[strum(serialize = "toggle_debug_visual")]
-    ToggleDebugVisual,
 
     #[strum(serialize = "toggle_search_visual")]
     ToggleSearchVisual,
@@ -605,9 +577,9 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Go to Location")]
     GoToLocation,
 
-    #[strum(serialize = "add_run_debug_config")]
-    #[strum(message = "Add Run Debug Config")]
-    AddRunDebugConfig,
+    #[strum(serialize = "add_run_config")]
+    #[strum(message = "Add Run Config")]
+    AddRunConfig,
 
     #[strum(serialize = "jump_highlight_next")]
     #[strum(message = "Jump to next document highlight")]
@@ -716,9 +688,8 @@ pub enum InternalCommand {
     ApplyWorkspaceEdit {
         edit: WorkspaceEdit,
     },
-    RunAndDebug {
-        mode: RunDebugMode,
-        config: RunDebugConfig,
+    Run {
+        config: RunConfig,
     },
     StartRename {
         path: PathBuf,
@@ -782,13 +753,6 @@ pub enum InternalCommand {
     },
     UpdateProxyStatus {
         status: ProxyStatus,
-    },
-    DapFrameScopes {
-        dap_id: DapId,
-        frame_id: usize,
-    },
-    OpenVoltView {
-        volt_id: VoltID,
     },
     ResetBlinkCursor,
     OpenDiffFiles {

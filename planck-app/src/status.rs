@@ -13,8 +13,8 @@ use floem::{
     views::{Decorators, dyn_stack, label, stack, svg},
 };
 use indexmap::IndexMap;
-use planck_core::mode::{Mode, VisualMode};
 use lsp_types::{DiagnosticSeverity, ProgressToken};
+use planck_core::mode::{Mode, VisualMode};
 
 use crate::{
     app::clickable_icon,

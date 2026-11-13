@@ -1,6 +1,4 @@
-use std::{
-    cmp, collections::BTreeMap, ops::DerefMut, path::PathBuf, rc::Rc, sync::Arc,
-};
+use std::{cmp, ops::DerefMut, rc::Rc, sync::Arc};
 
 use floem::{
     Renderer, View, ViewId,
@@ -41,28 +39,26 @@ use floem::{
     },
 };
 use itertools::Itertools;
+use lapce_xi_rope::find::CaseMatching;
+use lsp_types::CodeLens;
 use planck_core::{
     buffer::{Buffer, diff::DiffLines, rope_text::RopeText},
     cursor::{CursorAffinity, CursorMode},
     selection::SelRegion,
 };
-use planck_rpc::{
-    dap_types::{DapId, SourceBreakpoint},
-    plugin::PluginId,
-};
-use lapce_xi_rope::find::CaseMatching;
-use lsp_types::CodeLens;
+use planck_rpc::plugin::PluginId;
 
 use super::{DocSignal, EditorData, gutter::editor_gutter_view};
 use crate::{
     app::clickable_icon,
     command::InternalCommand,
-    config::{PlanckConfig, color::PlanckColor, editor::WrapStyle, icon::PlanckIcons},
-    debug::{DapData, PlanckBreakpoint},
+    config::{
+        PlanckConfig, color::PlanckColor, editor::WrapStyle, icon::PlanckIcons,
+    },
     doc::DocContent,
     editor::gutter::FoldingDisplayItem,
     text_input::TextInputBuilder,
-    window_tab::{CommonData, Focus, WindowTabData},
+    window_tab::{Focus, WindowTabData},
     workspace::PlanckWorkspace,
 };
 
@@ -142,12 +138,10 @@ pub struct EditorView {
     is_active: Memo<bool>,
     inner_node: Option<NodeId>,
     viewport: RwSignal<Rect>,
-    debug_breakline: Memo<Option<(usize, PathBuf)>>,
 }
 
 pub fn editor_view(
     e_data: EditorData,
-    debug_breakline: Memo<Option<(usize, PathBuf)>>,
     is_active: impl Fn(bool) -> bool + 'static + Copy,
 ) -> EditorView {
     let id = ViewId::new();
@@ -274,7 +268,6 @@ pub fn editor_view(
         is_active,
         inner_node: None,
         viewport,
-        debug_breakline,
     }
     .on_event(EventListener::ImePreedit, move |event| {
         if !is_active.get_untracked() {
@@ -432,36 +425,6 @@ impl EditorView {
 
         let current_line_color = ed.es.with_untracked(EditorStyle::current_line);
 
-        let breakline = self.debug_breakline.get_untracked().and_then(
-            |(breakline, breakline_path)| {
-                if e_data
-                    .doc()
-                    .content
-                    .with_untracked(|c| c.path() == Some(&breakline_path))
-                {
-                    Some(breakline)
-                } else {
-                    None
-                }
-            },
-        );
-
-        // TODO: check if this is correct
-        if let Some(breakline) = breakline {
-            if let Some(info) = screen_lines.info_for_line(breakline) {
-                let rect = Rect::from_origin_size(
-                    (viewport.x0, info.vline_y),
-                    (viewport.width(), line_height),
-                );
-
-                cx.fill(
-                    &rect,
-                    config.color(PlanckColor::EDITOR_DEBUG_BREAK_LINE),
-                    0.0,
-                );
-            }
-        }
-
         cursor.with_untracked(|cursor| {
             let highlight_current_line = match cursor.mode {
                 CursorMode::Normal(_) | CursorMode::Insert(_) => true,
@@ -475,10 +438,7 @@ impl EditorView {
                         // TODO: unsure if this is correct for wrapping lines
                         let rvline = ed.rvline_of_offset(end, cursor.affinity);
 
-                        if let Some(info) = screen_lines
-                            .info(rvline)
-                            .filter(|_| Some(rvline.line) != breakline)
-                        {
+                        if let Some(info) = screen_lines.info(rvline) {
                             let rect = Rect::from_origin_size(
                                 (viewport.x0, info.vline_y),
                                 (viewport.width(), line_height),
@@ -1350,7 +1310,6 @@ pub fn editor_container_view(
     let replace_editor = main_split.replace_editor;
     let replace_active = main_split.common.find.replace_active;
     let replace_focus = main_split.common.find.replace_focus;
-    let debug_breakline = window_tab_data.terminal.breakline;
 
     let viewport = ed.viewport;
     let screen_lines = ed.screen_lines;
@@ -1365,7 +1324,7 @@ pub fn editor_container_view(
                 screen_lines,
                 viewport,
             ),
-            editor_content(editor, debug_breakline, is_active),
+            editor_content(editor, is_active),
             empty().style(move |s| {
                 let config = config.get();
                 s.absolute()
@@ -1425,219 +1384,6 @@ pub fn editor_container_view(
     .debug_name("Editor Container")
 }
 
-fn editor_gutter_breakpoint_view(
-    i: usize,
-    doc: DocSignal,
-    daps: RwSignal<im::HashMap<DapId, DapData>>,
-    breakpoints: RwSignal<BTreeMap<PathBuf, BTreeMap<usize, PlanckBreakpoint>>>,
-    screen_lines: RwSignal<ScreenLines>,
-    common: Rc<CommonData>,
-    icon_padding: f32,
-) -> impl View {
-    let hovered = create_rw_signal(false);
-    let config = common.config;
-    container(
-        svg(move || config.get().ui_svg(PlanckIcons::DEBUG_BREAKPOINT)).style(
-            move |s| {
-                let config = config.get();
-                let size = config.ui.icon_size() as f32 + 2.0;
-                s.size(size, size)
-                    .color(config.color(PlanckColor::DEBUG_BREAKPOINT_HOVER))
-                    .apply_if(!hovered.get(), |s| s.hide())
-            },
-        ),
-    )
-    .on_click_stop(move |_| {
-        let screen_lines = screen_lines.get_untracked();
-        let line = screen_lines.lines.get(i).map(|r| r.line).unwrap_or(0);
-        // let line = (viewport.get_untracked().y0
-        //     / config.get_untracked().editor.line_height() as f64)
-        //     .floor() as usize
-        //     + i;
-        let doc = doc.get_untracked();
-        let offset = doc.buffer.with_untracked(|b| b.offset_of_line(line));
-        if let Some(path) = doc.content.get_untracked().path() {
-            let path_breakpoints = breakpoints
-                .try_update(|breakpoints| {
-                    let breakpoints = breakpoints.entry(path.clone()).or_default();
-                    if let std::collections::btree_map::Entry::Vacant(e) =
-                        breakpoints.entry(line)
-                    {
-                        e.insert(PlanckBreakpoint {
-                            id: None,
-                            verified: false,
-                            message: None,
-                            line,
-                            offset,
-                            dap_line: None,
-                            active: true,
-                        });
-                    } else {
-                        let mut toggle_active = false;
-                        if let Some(breakpoint) = breakpoints.get_mut(&line) {
-                            if !breakpoint.active {
-                                breakpoint.active = true;
-                                toggle_active = true;
-                            }
-                        }
-                        if !toggle_active {
-                            breakpoints.remove(&line);
-                        }
-                    }
-                    breakpoints.clone()
-                })
-                .unwrap();
-            let source_breakpoints: Vec<SourceBreakpoint> = path_breakpoints
-                .iter()
-                .filter_map(|(_, b)| {
-                    if b.active {
-                        Some(SourceBreakpoint {
-                            line: b.line + 1,
-                            column: None,
-                            condition: None,
-                            hit_condition: None,
-                            log_message: None,
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let daps: Vec<DapId> =
-                daps.with_untracked(|daps| daps.keys().cloned().collect());
-            for dap_id in daps {
-                common.proxy.dap_set_breakpoints(
-                    dap_id,
-                    path.to_path_buf(),
-                    source_breakpoints.clone(),
-                );
-            }
-        }
-    })
-    .on_event_stop(EventListener::PointerEnter, move |_| {
-        hovered.set(true);
-    })
-    .on_event_stop(EventListener::PointerLeave, move |_| {
-        hovered.set(false);
-    })
-    .style(move |s| {
-        let config = config.get();
-        s.width(config.ui.icon_size() as f32 + icon_padding * 2.0)
-            .height(config.editor.line_height() as f32)
-            .justify_center()
-            .items_center()
-            .cursor(CursorStyle::Pointer)
-    })
-}
-
-fn editor_gutter_breakpoints(
-    window_tab_data: Rc<WindowTabData>,
-    e_data: RwSignal<EditorData>,
-    icon_padding: f32,
-) -> impl View {
-    let breakpoints = window_tab_data.terminal.debug.breakpoints;
-    let daps = window_tab_data.terminal.debug.daps;
-    let common = window_tab_data.common.clone();
-
-    let (ed, doc, config) = e_data
-        .with_untracked(|e| (e.editor.clone(), e.doc_signal(), e.common.config));
-    let viewport = ed.viewport;
-    let screen_lines = ed.screen_lines;
-
-    let num_display_lines = create_memo(move |_| {
-        let screen_lines = screen_lines.get();
-        screen_lines.lines.len()
-        // let viewport = viewport.get();
-        // let line_height = config.get().editor.line_height() as f64;
-        // (viewport.height() / line_height).ceil() as usize + 1
-    });
-
-    clip(
-        stack((
-            dyn_stack(
-                move || {
-                    let num = num_display_lines.get();
-                    0..num
-                },
-                move |i| *i,
-                move |i| {
-                    editor_gutter_breakpoint_view(
-                        i,
-                        doc,
-                        daps,
-                        breakpoints,
-                        screen_lines,
-                        common.clone(),
-                        icon_padding,
-                    )
-                },
-            )
-            .style(move |s| {
-                s.absolute().flex_col().margin_top(
-                    -(viewport.get().y0 % config.get().editor.line_height() as f64)
-                        as f32,
-                )
-            })
-            .debug_name("Breakpoint Stack"),
-            dyn_stack(
-                move || {
-                    let e_data = e_data.get();
-                    let doc = e_data.doc_signal().get();
-                    let content = doc.content.get();
-                    let breakpoints = if let Some(path) = content.path() {
-                        breakpoints
-                            .with(|b| b.get(path).cloned())
-                            .unwrap_or_default()
-                    } else {
-                        Default::default()
-                    };
-                    breakpoints.into_iter()
-                },
-                move |(line, b)| (*line, b.active),
-                move |(line, breakpoint)| {
-                    let active = breakpoint.active;
-                    container(
-                        svg(move || {
-                            config.get().ui_svg(PlanckIcons::DEBUG_BREAKPOINT)
-                        })
-                        .style(move |s| {
-                            let config = config.get();
-                            let size = config.ui.icon_size() as f32 + 2.0;
-                            let color = if active {
-                                PlanckColor::DEBUG_BREAKPOINT
-                            } else {
-                                PlanckColor::EDITOR_DIM
-                            };
-                            let color = config.color(color);
-                            s.size(size, size).color(color)
-                        }),
-                    )
-                    .style(move |s| {
-                        let config = config.get();
-                        let line_y = screen_lines
-                            .with(|s| s.info_for_line(line))
-                            .map(|l| l.y)
-                            .unwrap_or_default();
-                        s.absolute()
-                            .width(config.ui.icon_size() as f32 + icon_padding * 2.0)
-                            .height(config.editor.line_height() as f32)
-                            .justify_center()
-                            .items_center()
-                            .margin_top(line_y as f32 - viewport.get().y0 as f32)
-                    })
-                },
-            )
-            .style(|s| s.absolute().size_pct(100.0, 100.0)),
-        ))
-        .style(|s| s.size_pct(100.0, 100.0)),
-    )
-    .style(move |s| {
-        s.absolute()
-            .size_pct(100.0, 100.0)
-            .background(config.get().color(PlanckColor::EDITOR_BACKGROUND))
-    })
-}
-
 fn editor_gutter_code_lens_view(
     window_tab_data: Rc<WindowTabData>,
     line: usize,
@@ -1647,14 +1393,14 @@ fn editor_gutter_code_lens_view(
     icon_padding: f32,
 ) -> impl View {
     let config = window_tab_data.common.config;
-    let view = container(svg(move || config.get().ui_svg(PlanckIcons::START)).style(
-        move |s| {
+    let view = container(
+        svg(move || config.get().ui_svg(PlanckIcons::START)).style(move |s| {
             let config = config.get();
             let size = config.ui.icon_size() as f32;
             s.size(size, size)
                 .color(config.color(PlanckColor::PLANCK_ICON_ACTIVE))
-        },
-    ))
+        }),
+    )
     .style(move |s| {
         let config = config.get();
         s.padding(4.0)
@@ -1955,7 +1701,6 @@ fn editor_gutter(
         ))
         .debug_name("Centered Last Line Count")
         .style(|s| s.height_pct(100.0)),
-        editor_gutter_breakpoints(window_tab_data.clone(), e_data, icon_padding),
         clip(
             stack((
                 editor_gutter_code_lens(
@@ -2103,7 +1848,6 @@ fn editor_breadcrumbs(
 
 fn editor_content(
     e_data: RwSignal<EditorData>,
-    debug_breakline: Memo<Option<(usize, PathBuf)>>,
     is_active: impl Fn(bool) -> bool + 'static + Copy,
 ) -> impl View {
     let (
@@ -2140,15 +1884,13 @@ fn editor_content(
     let current_scroll = create_rw_signal(Rect::ZERO);
 
     scroll({
-        let editor_content_view =
-            editor_view(e_data.get_untracked(), debug_breakline, is_active).style(
-                move |s| {
-                    s.absolute()
-                        .margin_left(1.0)
-                        .min_size_full()
-                        .cursor(CursorStyle::Text)
-                },
-            );
+        let editor_content_view = editor_view(e_data.get_untracked(), is_active)
+            .style(move |s| {
+                s.absolute()
+                    .margin_left(1.0)
+                    .min_size_full()
+                    .cursor(CursorStyle::Text)
+            });
 
         let id = editor_content_view.id();
         editor.editor_view_id.set(Some(id));

@@ -10,12 +10,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use jsonrpc_lite::{Id, Params};
-use planck_core::meta;
-use planck_rpc::{
-    RpcError,
-    plugin::{PluginId, VoltID},
-    style::LineStyle,
-};
 use lapce_xi_rope::Rope;
 use lsp_types::{
     notification::{Initialized, Notification},
@@ -23,6 +17,12 @@ use lsp_types::{
     *,
 };
 use parking_lot::Mutex;
+use planck_core::meta;
+use planck_rpc::{
+    RpcError,
+    plugin::{LspServerConfig, PluginId},
+    style::LineStyle,
+};
 use serde_json::Value;
 
 use super::{
@@ -95,7 +95,6 @@ impl PluginServerHandler for LspClient {
             Shutdown => {
                 self.shutdown();
             }
-            SpawnedPluginLoaded { .. } => {}
         }
     }
 
@@ -170,50 +169,33 @@ impl PluginServerHandler for LspClient {
 }
 
 impl LspClient {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         plugin_rpc: PluginCatalogRpcHandler,
-        document_selector: DocumentSelector,
         workspace: Option<PathBuf>,
-        volt_id: VoltID,
-        volt_display_name: String,
-        spawned_by: Option<PluginId>,
-        plugin_id: Option<PluginId>,
-        pwd: Option<PathBuf>,
-        server_uri: Url,
-        args: Vec<String>,
-        options: Option<Value>,
+        name: String,
+        config: LspServerConfig,
     ) -> Result<Self> {
-        let server = match server_uri.scheme() {
-            "file" => {
-                let path = server_uri.to_file_path().map_err(|_| anyhow!(""))?;
-                #[cfg(unix)]
-                if let Err(err) = std::process::Command::new("chmod")
-                    .arg("+x")
-                    .arg(&path)
-                    .output()
-                {
-                    tracing::error!("{:?}", err);
-                }
-                path.to_str().ok_or_else(|| anyhow!(""))?.to_string()
-            }
-            "urn" => server_uri.path().to_string(),
-            _ => return Err(anyhow!("uri not supported")),
-        };
+        let server = config.command.clone();
+        let document_selector: DocumentSelector = config
+            .languages
+            .iter()
+            .map(|language| lsp_types::DocumentFilter {
+                language: Some(language.clone()),
+                scheme: None,
+                pattern: None,
+            })
+            .collect();
+        let options = config.initialization_options.clone();
 
-        let mut process = Self::process(workspace.as_ref(), &server, &args)?;
+        let mut process = Self::process(workspace.as_ref(), &config)?;
         let stdin = process.stdin.take().unwrap();
         let stdout = process.stdout.take().unwrap();
         let stderr = process.stderr.take().unwrap();
 
         let mut writer = Box::new(BufWriter::new(stdin));
         let (io_tx, io_rx) = crossbeam_channel::unbounded();
-        let server_rpc = PluginServerRpcHandler::new(
-            volt_id.clone(),
-            spawned_by,
-            plugin_id,
-            io_tx.clone(),
-        );
+        let server_rpc =
+            PluginServerRpcHandler::new(name.clone(), None, io_tx.clone());
         thread::spawn(move || {
             for msg in io_rx {
                 if msg
@@ -239,9 +221,9 @@ impl LspClient {
 
         let local_server_rpc = server_rpc.clone();
         let core_rpc = plugin_rpc.core_rpc.clone();
-        let volt_id_closure = volt_id.clone();
-        let name = volt_display_name.clone();
+        let name_closure = name.clone();
         thread::spawn(move || {
+            let name = name_closure;
             let mut reader = Box::new(BufReader::new(stdout));
             loop {
                 match read_message(&mut reader) {
@@ -262,10 +244,9 @@ impl LspClient {
                     Err(_err) => {
                         core_rpc.log(
                             planck_rpc::core::LogLevel::Error,
-                            format!("lsp server {server} stopped!"),
+                            format!("language server {name} ({server}) stopped"),
                             Some(format!(
-                                "planck_proxy::plugin::lsp::{}::{}::stopped",
-                                volt_id_closure.author, volt_id_closure.name
+                                "planck_proxy::plugin::lsp::{name}::stopped"
                             )),
                         );
                         return;
@@ -275,8 +256,9 @@ impl LspClient {
         });
 
         let core_rpc = plugin_rpc.core_rpc.clone();
-        let volt_id_closure = volt_id.clone();
+        let name_closure = name.clone();
         thread::spawn(move || {
+            let name = name_closure;
             let mut reader = Box::new(BufReader::new(stderr));
             loop {
                 let mut line = String::new();
@@ -289,8 +271,7 @@ impl LspClient {
                             planck_rpc::core::LogLevel::Trace,
                             line.trim_end().to_string(),
                             Some(format!(
-                                "planck_proxy::plugin::lsp::{}::{}::stderr",
-                                volt_id_closure.author, volt_id_closure.name
+                                "planck_proxy::plugin::lsp::{name}::stderr"
                             )),
                         );
                     }
@@ -302,10 +283,7 @@ impl LspClient {
         });
 
         let host = PluginHostHandler::new(
-            workspace.clone(),
-            pwd,
-            volt_id,
-            volt_display_name,
+            name,
             document_selector,
             plugin_rpc.core_rpc.clone(),
             server_rpc.clone(),
@@ -322,33 +300,15 @@ impl LspClient {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Spawn the language server `name` and run its message loop on a
+    /// background thread.
     pub fn start(
         plugin_rpc: PluginCatalogRpcHandler,
-        document_selector: DocumentSelector,
         workspace: Option<PathBuf>,
-        volt_id: VoltID,
-        volt_display_name: String,
-        spawned_by: Option<PluginId>,
-        plugin_id: Option<PluginId>,
-        pwd: Option<PathBuf>,
-        server_uri: Url,
-        args: Vec<String>,
-        options: Option<Value>,
+        name: String,
+        config: LspServerConfig,
     ) -> Result<PluginId> {
-        let mut lsp = Self::new(
-            plugin_rpc,
-            document_selector,
-            workspace,
-            volt_id,
-            volt_display_name,
-            spawned_by,
-            plugin_id,
-            pwd,
-            server_uri,
-            args,
-            options,
-        )?;
+        let mut lsp = Self::new(plugin_rpc, workspace, name, config)?;
         let plugin_id = lsp.server_rpc.plugin_id;
 
         let rpc = lsp.server_rpc.clone();
@@ -439,15 +399,14 @@ impl LspClient {
 
     fn process(
         workspace: Option<&PathBuf>,
-        server: &str,
-        args: &[String],
+        config: &LspServerConfig,
     ) -> Result<Child> {
-        let mut process = Command::new(server);
+        let mut process = Command::new(&config.command);
         if let Some(workspace) = workspace {
             process.current_dir(workspace);
         }
 
-        process.args(args);
+        process.args(&config.args).envs(&config.env);
 
         #[cfg(target_os = "windows")]
         let process = process.creation_flags(0x08000000);

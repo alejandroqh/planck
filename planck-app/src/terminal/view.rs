@@ -21,10 +21,10 @@ use floem::{
     text::{Attrs, AttrsList, FamilyOwned, TextLayout, Weight},
     views::editor::{core::register::Clipboard, text::SystemClipboard},
 };
-use planck_core::mode::Mode;
-use planck_rpc::{proxy::ProxyRpcHandler, terminal::TermId};
 use lsp_types::Position;
 use parking_lot::RwLock;
+use planck_core::mode::Mode;
+use planck_rpc::{proxy::ProxyRpcHandler, terminal::TermId};
 use regex::Regex;
 use unicode_width::UnicodeWidthChar;
 
@@ -32,10 +32,10 @@ use super::{panel::TerminalPanelData, raw::RawTerminal};
 use crate::{
     command::InternalCommand,
     config::{PlanckConfig, color::PlanckColor},
-    debug::RunDebugProcess,
     editor::location::{EditorLocation, EditorPosition},
     listener::Listener,
     panel::kind::PanelKind,
+    run::RunProcess,
     window_tab::Focus,
     workspace::PlanckWorkspace,
 };
@@ -65,7 +65,7 @@ pub struct TerminalView {
     size: Size,
     is_focused: bool,
     config: ReadSignal<Arc<PlanckConfig>>,
-    run_config: ReadSignal<Option<RunDebugProcess>>,
+    run_config: ReadSignal<Option<RunProcess>>,
     proxy: ProxyRpcHandler,
     launch_error: RwSignal<Option<String>>,
     internal_command: Listener<InternalCommand>,
@@ -80,7 +80,7 @@ pub fn terminal_view(
     term_id: TermId,
     raw: ReadSignal<Arc<RwLock<RawTerminal>>>,
     mode: ReadSignal<Mode>,
-    run_config: ReadSignal<Option<RunDebugProcess>>,
+    run_config: ReadSignal<Option<RunProcess>>,
     terminal_panel_data: TerminalPanelData,
     launch_error: RwSignal<Option<String>>,
     internal_command: Listener<InternalCommand>,

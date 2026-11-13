@@ -56,18 +56,13 @@ pub fn source_control_panel(
         let doc = doc.get();
         doc.buffer.with(|b| b.len() == 0)
     });
-    let debug_breakline = create_memo(move |_| None);
 
     stack((
         stack((
             container({
                 scroll({
                     let view = stack((
-                        editor_view(
-                            editor.get_untracked(),
-                            debug_breakline,
-                            is_active,
-                        ),
+                        editor_view(editor.get_untracked(), is_active),
                         label(|| "Commit Message".to_string()).style(move |s| {
                             let config = config.get();
                             s.absolute()
@@ -166,8 +161,9 @@ pub fn source_control_panel(
                             .border_color(config.color(PlanckColor::PLANCK_BORDER))
                             .hover(|s| {
                                 s.cursor(CursorStyle::Pointer).background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                             .active(|s| {

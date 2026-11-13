@@ -7,12 +7,11 @@ use std::{
 use ::core::slice;
 use floem::{peniko::Color, prelude::palette::css};
 use itertools::Itertools;
-use planck_core::directory::Directory;
-use planck_proxy::plugin::wasi::find_all_volts;
-use planck_rpc::plugin::VoltID;
 use lsp_types::{CompletionItemKind, SymbolKind};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use planck_core::directory::Directory;
+use planck_rpc::plugin::LspServers;
 use serde::Deserialize;
 use strum::VariantNames;
 use tracing::error;
@@ -28,7 +27,7 @@ use self::{
     terminal::TerminalConfig,
     ui::UIConfig,
 };
-use crate::workspace::{PlanckWorkspace, PlanckWorkspaceType};
+use crate::workspace::PlanckWorkspace;
 
 pub mod color;
 pub mod color_theme;
@@ -47,7 +46,8 @@ const DEFAULT_LIGHT_THEME: &str = include_str!("../../defaults/light-theme.toml"
 const DEFAULT_DARK_THEME: &str = include_str!("../../defaults/dark-theme.toml");
 const DEFAULT_ICON_THEME: &str = include_str!("../../defaults/icon-theme.toml");
 
-static DEFAULT_CONFIG: Lazy<config::Config> = Lazy::new(PlanckConfig::default_config);
+static DEFAULT_CONFIG: Lazy<config::Config> =
+    Lazy::new(PlanckConfig::default_config);
 static DEFAULT_PLANCK_CONFIG: Lazy<PlanckConfig> =
     Lazy::new(PlanckConfig::default_planck_config);
 
@@ -104,8 +104,9 @@ pub struct PlanckConfig {
     pub color_theme: ColorThemeConfig,
     #[serde(default)]
     pub icon_theme: IconThemeConfig,
-    #[serde(flatten)]
-    pub plugins: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Language servers, from the `[lsp.<name>]` tables.
+    #[serde(default)]
+    pub lsp: LspServers,
     #[serde(skip)]
     pub color: ThemeColor,
     #[serde(skip)]
@@ -129,11 +130,7 @@ pub struct PlanckConfig {
 }
 
 impl PlanckConfig {
-    pub fn load(
-        workspace: &PlanckWorkspace,
-        disabled_volts: &[VoltID],
-        extra_plugin_paths: &[PathBuf],
-    ) -> Self {
+    pub fn load(workspace: &PlanckWorkspace) -> Self {
         let config = Self::merge_config(workspace, None, None);
         let mut planck_config: PlanckConfig = match config.try_deserialize() {
             Ok(config) => config,
@@ -143,10 +140,8 @@ impl PlanckConfig {
             }
         };
 
-        planck_config.available_color_themes =
-            Self::load_color_themes(disabled_volts, extra_plugin_paths);
-        planck_config.available_icon_themes =
-            Self::load_icon_themes(disabled_volts, extra_plugin_paths);
+        planck_config.available_color_themes = Self::load_color_themes();
+        planck_config.available_icon_themes = Self::load_icon_themes();
         planck_config.resolve_theme(workspace);
 
         planck_config.color_theme_list = planck_config
@@ -211,22 +206,13 @@ impl PlanckConfig {
                 .unwrap_or_else(|_| config.clone());
         }
 
-        match workspace.kind {
-            PlanckWorkspaceType::Local => {
-                if let Some(path) = workspace.path.as_ref() {
-                    let path = path.join("./.planck/settings.toml");
-                    config = config::Config::builder()
-                        .add_source(config.clone())
-                        .add_source(
-                            config::File::from(path.as_path()).required(false),
-                        )
-                        .build()
-                        .unwrap_or_else(|_| config.clone());
-                }
-            }
-            PlanckWorkspaceType::RemoteSSH(_) => {}
-            #[cfg(windows)]
-            PlanckWorkspaceType::RemoteWSL(_) => {}
+        if let Some(path) = workspace.path.as_ref() {
+            let path = path.join("./.planck/settings.toml");
+            config = config::Config::builder()
+                .add_source(config.clone())
+                .add_source(config::File::from(path.as_path()).required(false))
+                .build()
+                .unwrap_or_else(|_| config.clone());
         }
 
         config
@@ -296,23 +282,14 @@ impl PlanckConfig {
             if let Some(icon_theme_path) = icon_theme_path {
                 self.icon_theme.path = icon_theme_path.clone().unwrap_or_default();
             }
-            self.plugins = new.plugins;
+            self.lsp = new.lsp;
         }
         self.resolve_colors(Some(&default_planck_config));
         self.update_id();
     }
 
-    fn load_color_themes(
-        disabled_volts: &[VoltID],
-        extra_plugin_paths: &[PathBuf],
-    ) -> HashMap<String, (String, config::Config)> {
+    fn load_color_themes() -> HashMap<String, (String, config::Config)> {
         let mut themes = Self::load_local_themes().unwrap_or_default();
-
-        for (key, theme) in
-            Self::load_plugin_color_themes(disabled_volts, extra_plugin_paths)
-        {
-            themes.insert(key, theme);
-        }
 
         let (name, theme) =
             Self::load_color_theme_from_str(DEFAULT_LIGHT_THEME).unwrap();
@@ -432,6 +409,26 @@ impl PlanckConfig {
         Some(themes)
     }
 
+    /// Icon themes in the themes directory: either a `.toml` file with an
+    /// `[icon-theme]` table, or a folder holding `icon-theme.toml` and the
+    /// SVG files it refers to.
+    fn load_local_icon_themes()
+    -> Option<HashMap<String, (String, config::Config, PathBuf)>> {
+        let themes_folder = Directory::themes_directory()?;
+        let themes = std::fs::read_dir(themes_folder)
+            .ok()?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                if path.is_dir() {
+                    Self::load_icon_theme(&path.join("icon-theme.toml"))
+                } else {
+                    Self::load_icon_theme(&path)
+                }
+            })
+            .collect();
+        Some(themes)
+    }
+
     fn load_color_theme(path: &Path) -> Option<(String, (String, config::Config))> {
         if !path.is_file() {
             return None;
@@ -457,17 +454,13 @@ impl PlanckConfig {
         Some((name, config))
     }
 
-    fn load_icon_themes(
-        disabled_volts: &[VoltID],
-        extra_plugin_paths: &[PathBuf],
-    ) -> HashMap<String, (String, config::Config, Option<PathBuf>)> {
-        let mut themes = HashMap::new();
-
-        for (key, (name, theme, path)) in
-            Self::load_plugin_icon_themes(disabled_volts, extra_plugin_paths)
-        {
-            themes.insert(key, (name, theme, Some(path)));
-        }
+    fn load_icon_themes()
+    -> HashMap<String, (String, config::Config, Option<PathBuf>)> {
+        let mut themes: HashMap<_, _> = Self::load_local_icon_themes()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(key, (name, theme, path))| (key, (name, theme, Some(path))))
+            .collect();
 
         let (name, theme) =
             Self::load_icon_theme_from_str(DEFAULT_ICON_THEME).unwrap();
@@ -484,51 +477,6 @@ impl PlanckConfig {
         let table = config.get_table("icon-theme").ok()?;
         let name = table.get("name")?.to_string();
         Some((name, config))
-    }
-
-    fn load_plugin_color_themes(
-        disabled_volts: &[VoltID],
-        extra_plugin_paths: &[PathBuf],
-    ) -> HashMap<String, (String, config::Config)> {
-        let mut themes: HashMap<String, (String, config::Config)> = HashMap::new();
-        for meta in find_all_volts(extra_plugin_paths) {
-            if disabled_volts.contains(&meta.id()) {
-                continue;
-            }
-            if let Some(plugin_themes) = meta.color_themes.as_ref() {
-                for theme_path in plugin_themes {
-                    if let Some((key, theme)) =
-                        Self::load_color_theme(&PathBuf::from(theme_path))
-                    {
-                        themes.insert(key, theme);
-                    }
-                }
-            }
-        }
-        themes
-    }
-
-    fn load_plugin_icon_themes(
-        disabled_volts: &[VoltID],
-        extra_plugin_paths: &[PathBuf],
-    ) -> HashMap<String, (String, config::Config, PathBuf)> {
-        let mut themes: HashMap<String, (String, config::Config, PathBuf)> =
-            HashMap::new();
-        for meta in find_all_volts(extra_plugin_paths) {
-            if disabled_volts.contains(&meta.id()) {
-                continue;
-            }
-            if let Some(plugin_themes) = meta.icon_themes.as_ref() {
-                for theme_path in plugin_themes {
-                    if let Some((key, theme)) =
-                        Self::load_icon_theme(&PathBuf::from(theme_path))
-                    {
-                        themes.insert(key, theme);
-                    }
-                }
-            }
-        }
-        themes
     }
 
     fn load_icon_theme(
@@ -1016,5 +964,22 @@ impl PlanckConfig {
         std::fs::write(path, main_table.to_string().as_bytes()).ok()?;
 
         Some(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_settings_include_language_servers() {
+        let config = PlanckConfig::default_planck_config();
+        let rust = config.lsp.get("rust-analyzer").expect("rust-analyzer default");
+        assert_eq!(rust.command, "rust-analyzer");
+        assert_eq!(rust.languages, vec!["rust".to_string()]);
+        assert!(!rust.disabled);
+
+        let pyright = config.lsp.get("pyright").expect("pyright default");
+        assert_eq!(pyright.args, vec!["--stdio".to_string()]);
     }
 }

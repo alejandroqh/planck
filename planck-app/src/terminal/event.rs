@@ -7,8 +7,8 @@ use std::{
     time::Instant,
 };
 
-use planck_rpc::terminal::TermId;
 use parking_lot::RwLock;
+use planck_rpc::terminal::TermId;
 
 use super::raw::RawTerminal;
 

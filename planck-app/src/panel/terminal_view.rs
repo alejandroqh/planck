@@ -21,7 +21,6 @@ use crate::{
     app::clickable_icon,
     command::{InternalCommand, PlanckWorkbenchCommand},
     config::{color::PlanckColor, icon::PlanckIcons},
-    debug::RunDebugMode,
     listener::Listener,
     terminal::{
         panel::TerminalPanelData, tab::TerminalTabData, view::terminal_view,
@@ -70,7 +69,6 @@ fn terminal_tab_header(window_tab_data: Rc<WindowTabData>) -> impl View {
             |(_, tab)| tab.terminal_tab_id,
             move |(index, tab)| {
                 let terminal = terminal.clone();
-                let local_terminal = terminal.clone();
                 let terminal_tab_id = tab.terminal_tab_id;
 
                 let title = {
@@ -96,18 +94,14 @@ fn terminal_tab_header(window_tab_data: Rc<WindowTabData>) -> impl View {
                     let terminal = tab.active_terminal(true);
                     let run_debug = terminal.as_ref().map(|t| t.run_debug);
                     if let Some(run_debug) = run_debug {
-                        if let Some((mode, stopped)) = run_debug.with(|run_debug| {
-                            run_debug.as_ref().map(|r| (r.mode, r.stopped))
-                        }) {
-                            let svg = match (mode, stopped) {
-                                (RunDebugMode::Run, false) => PlanckIcons::START,
-                                (RunDebugMode::Run, true) => PlanckIcons::RUN_ERRORS,
-                                (RunDebugMode::Debug, false) => PlanckIcons::DEBUG,
-                                (RunDebugMode::Debug, true) => {
-                                    PlanckIcons::DEBUG_DISCONNECT
-                                }
+                        if let Some(stopped) = run_debug
+                            .with(|run_debug| run_debug.as_ref().map(|r| r.stopped))
+                        {
+                            return if stopped {
+                                PlanckIcons::RUN_ERRORS
+                            } else {
+                                PlanckIcons::START
                             };
-                            return svg;
                         }
                     }
                     PlanckIcons::TERMINAL
@@ -152,7 +146,9 @@ fn terminal_tab_header(window_tab_data: Rc<WindowTabData>) -> impl View {
                                     .height(header_height.get() - 15.0)
                                     .border_right(1.0)
                                     .border_color(
-                                        config.get().color(PlanckColor::PLANCK_BORDER),
+                                        config
+                                            .get()
+                                            .color(PlanckColor::PLANCK_BORDER),
                                     )
                                     .pointer_events_none()
                             }),
@@ -200,7 +196,6 @@ fn terminal_tab_header(window_tab_data: Rc<WindowTabData>) -> impl View {
                             tab_info.update(|tab| {
                                 tab.active = index.get_untracked();
                             });
-                            local_terminal.update_debug_active_term();
                         }
                     },
                 )

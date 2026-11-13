@@ -5,7 +5,7 @@ use planck_rpc::terminal::TerminalProfile;
 
 use super::data::TerminalData;
 use crate::{
-    debug::RunDebugProcess, id::TerminalTabId, window_tab::CommonData,
+    id::TerminalTabId, run::RunProcess, window_tab::CommonData,
     workspace::PlanckWorkspace,
 };
 
@@ -29,7 +29,7 @@ impl TerminalTabData {
     /// Create the information for a terminal tab, which can contain multiple terminals.  
     pub fn new_run_debug(
         workspace: Arc<PlanckWorkspace>,
-        run_debug: Option<RunDebugProcess>,
+        run_debug: Option<RunProcess>,
         profile: Option<TerminalProfile>,
         common: Rc<CommonData>,
     ) -> Self {

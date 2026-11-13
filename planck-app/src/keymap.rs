@@ -159,7 +159,9 @@ pub fn keymap_view(editors: Editors, common: Rc<CommonData>) -> impl View {
                                     .border(1.0)
                                     .border_radius(3.0)
                                     .border_color(
-                                        config.get().color(PlanckColor::PLANCK_BORDER),
+                                        config
+                                            .get()
+                                            .color(PlanckColor::PLANCK_BORDER),
                                     )
                             })
                         },
@@ -208,7 +210,9 @@ pub fn keymap_view(editors: Editors, common: Rc<CommonData>) -> impl View {
                                     .border(1.0)
                                     .border_radius(3.0)
                                     .border_color(
-                                        config.get().color(PlanckColor::PLANCK_BORDER),
+                                        config
+                                            .get()
+                                            .color(PlanckColor::PLANCK_BORDER),
                                     )
                             })
                         },
@@ -441,8 +445,9 @@ fn keyboard_picker_view(
                             .border_color(config.color(PlanckColor::PLANCK_BORDER))
                             .hover(|s| {
                                 s.cursor(CursorStyle::Pointer).background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                             .active(|s| {
@@ -477,8 +482,9 @@ fn keyboard_picker_view(
                             .border_color(config.color(PlanckColor::PLANCK_BORDER))
                             .hover(|s| {
                                 s.cursor(CursorStyle::Pointer).background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                             .active(|s| {

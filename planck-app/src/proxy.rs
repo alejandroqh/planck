@@ -1,6 +1,4 @@
 use std::{
-    collections::HashMap,
-    path::PathBuf,
     process::Command,
     sync::{Arc, mpsc::Sender},
 };
@@ -9,22 +7,12 @@ use floem::{ext_event::create_signal_from_channel, reactive::ReadSignal};
 use planck_proxy::dispatch::Dispatcher;
 use planck_rpc::{
     core::{CoreHandler, CoreNotification, CoreRpcHandler},
-    plugin::VoltID,
+    plugin::LspServers,
     proxy::{ProxyRpcHandler, ProxyStatus},
     terminal::TermId,
 };
-use tracing::error;
 
-use self::{remote::start_remote, ssh::SshRemote};
-use crate::{
-    terminal::event::TermEvent,
-    workspace::{PlanckWorkspace, PlanckWorkspaceType},
-};
-
-mod remote;
-mod ssh;
-#[cfg(windows)]
-mod wsl;
+use crate::{terminal::event::TermEvent, workspace::PlanckWorkspace};
 
 pub struct Proxy {
     pub tx: Sender<CoreNotification>,
@@ -47,9 +35,7 @@ impl ProxyData {
 
 pub fn new_proxy(
     workspace: Arc<PlanckWorkspace>,
-    disabled_volts: Vec<VoltID>,
-    extra_plugin_paths: Vec<PathBuf>,
-    plugin_configurations: HashMap<String, HashMap<String, serde_json::Value>>,
+    lsp_servers: LspServers,
     term_tx: Sender<(TermId, TermEvent)>,
 ) -> ProxyData {
     let proxy_rpc = ProxyRpcHandler::new();
@@ -64,47 +50,12 @@ pub fn new_proxy(
                 core_rpc.notification(CoreNotification::ProxyStatus {
                     status: ProxyStatus::Connecting,
                 });
-                proxy_rpc.initialize(
-                    workspace.path.clone(),
-                    disabled_volts,
-                    extra_plugin_paths,
-                    plugin_configurations,
-                    1,
-                    1,
-                );
+                proxy_rpc.initialize(workspace.path.clone(), lsp_servers, 1, 1);
 
-                match &workspace.kind {
-                    PlanckWorkspaceType::Local => {
-                        let core_rpc = core_rpc.clone();
-                        let proxy_rpc = proxy_rpc.clone();
-                        let mut dispatcher = Dispatcher::new(core_rpc, proxy_rpc);
-                        let proxy_rpc = dispatcher.proxy_rpc.clone();
-                        proxy_rpc.mainloop(&mut dispatcher);
-                    }
-                    PlanckWorkspaceType::RemoteSSH(remote) => {
-                        if let Err(e) = start_remote(
-                            SshRemote {
-                                ssh: remote.clone(),
-                            },
-                            core_rpc.clone(),
-                            proxy_rpc.clone(),
-                        ) {
-                            error!("Failed to start SSH remote: {e}");
-                        }
-                    }
-                    #[cfg(windows)]
-                    PlanckWorkspaceType::RemoteWSL(remote) => {
-                        if let Err(e) = start_remote(
-                            wsl::WslRemote {
-                                wsl: remote.clone(),
-                            },
-                            core_rpc.clone(),
-                            proxy_rpc.clone(),
-                        ) {
-                            error!("Failed to start SSH remote: {e}");
-                        }
-                    }
-                }
+                let mut dispatcher =
+                    Dispatcher::new(core_rpc.clone(), proxy_rpc.clone());
+                let proxy_rpc = dispatcher.proxy_rpc.clone();
+                proxy_rpc.mainloop(&mut dispatcher);
                 core_rpc.notification(CoreNotification::ProxyStatus {
                     status: ProxyStatus::Disconnected,
                 });

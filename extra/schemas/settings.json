@@ -23,6 +23,13 @@
                 },
                 "icon-theme": {
                     "$schema": "file://./icon-theme.json"
+                },
+                "lsp": {
+                    "type": "object",
+                    "description": "Language servers, keyed by name.",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LspServer"
+                    }
                 }
             },
             "required": [],
@@ -348,6 +355,46 @@
             },
             "required": [],
             "title": "UI"
+        },
+        "LspServer": {
+            "type": "object",
+            "additionalProperties": false,
+            "title": "LspServer",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Program to run. Looked up on PATH unless it is a path."
+                },
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Arguments passed to the server."
+                },
+                "languages": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "LSP language ids handled by this server, e.g. \"rust\" or \"typescriptreact\"."
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Extra environment variables for the server process."
+                },
+                "initialization-options": {
+                    "description": "Sent as initializationOptions in the initialize request."
+                },
+                "disabled": {
+                    "type": "boolean",
+                    "description": "Keep this server from starting."
+                }
+            },
+            "required": []
         }
     }
 }

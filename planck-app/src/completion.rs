@@ -5,15 +5,15 @@ use floem::{
     reactive::{ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith},
     views::editor::{id::EditorId, text::Document},
 };
-use planck_core::{
-    buffer::rope_text::RopeText, movement::Movement, rope_text_pos::RopeTextPosition,
-};
-use planck_rpc::{plugin::PluginId, proxy::ProxyRpcHandler};
 use lsp_types::{
     CompletionItem, CompletionResponse, CompletionTextEdit, InsertTextFormat,
     Position,
 };
 use nucleo::Utf32Str;
+use planck_core::{
+    buffer::rope_text::RopeText, movement::Movement, rope_text_pos::RopeTextPosition,
+};
+use planck_rpc::{plugin::PluginId, proxy::ProxyRpcHandler};
 
 use crate::{config::PlanckConfig, editor::EditorData, snippet::Snippet};
 

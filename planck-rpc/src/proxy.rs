@@ -22,14 +22,12 @@ use lsp_types::{
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use super::plugin::VoltID;
 use crate::{
     RequestId, RpcError, RpcMessage,
     buffer::BufferId,
-    dap_types::{self, DapId, RunDebugConfig, SourceBreakpoint, ThreadId},
     file::{FileNodeItem, PathObject},
     file_line::FileLine,
-    plugin::{PluginId, VoltInfo, VoltMetadata},
+    plugin::{LspServers, PluginId},
     source_control::FileDiff,
     style::SemanticStyles,
     terminal::{TermId, TerminalProfile},
@@ -216,14 +214,6 @@ pub enum ProxyRequest {
     TestCreateAtPath {
         path: PathBuf,
     },
-    DapVariable {
-        dap_id: DapId,
-        reference: usize,
-    },
-    DapGetScopes {
-        dap_id: DapId,
-        frame_id: usize,
-    },
     ReferencesResolve {
         items: Vec<Location>,
     },
@@ -239,10 +229,7 @@ pub enum ProxyRequest {
 pub enum ProxyNotification {
     Initialize {
         workspace: Option<PathBuf>,
-        disabled_volts: Vec<VoltID>,
-        /// Paths to extra plugins that should be loaded
-        extra_plugin_paths: Vec<PathBuf>,
-        plugin_configurations: HashMap<String, HashMap<String, serde_json::Value>>,
+        lsp_servers: LspServers,
         window_id: usize,
         tab_id: usize,
     },
@@ -269,27 +256,12 @@ pub enum ProxyNotification {
         delta: RopeDelta,
         rev: u64,
     },
-    UpdatePluginConfigs {
-        configs: HashMap<String, HashMap<String, serde_json::Value>>,
+    UpdateLspServers {
+        servers: LspServers,
     },
     NewTerminal {
         term_id: TermId,
         profile: TerminalProfile,
-    },
-    InstallVolt {
-        volt: VoltInfo,
-    },
-    RemoveVolt {
-        volt: VoltMetadata,
-    },
-    ReloadVolt {
-        volt: VoltMetadata,
-    },
-    DisableVolt {
-        volt: VoltInfo,
-    },
-    EnableVolt {
-        volt: VoltInfo,
     },
     GitCommit {
         message: String,
@@ -317,50 +289,6 @@ pub enum ProxyNotification {
     },
     TerminalClose {
         term_id: TermId,
-    },
-    DapStart {
-        config: RunDebugConfig,
-        breakpoints: HashMap<PathBuf, Vec<SourceBreakpoint>>,
-    },
-    DapProcessId {
-        dap_id: DapId,
-        process_id: Option<u32>,
-        term_id: TermId,
-    },
-    DapContinue {
-        dap_id: DapId,
-        thread_id: ThreadId,
-    },
-    DapStepOver {
-        dap_id: DapId,
-        thread_id: ThreadId,
-    },
-    DapStepInto {
-        dap_id: DapId,
-        thread_id: ThreadId,
-    },
-    DapStepOut {
-        dap_id: DapId,
-        thread_id: ThreadId,
-    },
-    DapPause {
-        dap_id: DapId,
-        thread_id: ThreadId,
-    },
-    DapStop {
-        dap_id: DapId,
-    },
-    DapDisconnect {
-        dap_id: DapId,
-    },
-    DapRestart {
-        dap_id: DapId,
-        breakpoints: HashMap<PathBuf, Vec<SourceBreakpoint>>,
-    },
-    DapSetBreakpoints {
-        dap_id: DapId,
-        path: PathBuf,
-        breakpoints: Vec<SourceBreakpoint>,
     },
 }
 
@@ -465,12 +393,6 @@ pub enum ProxyResponse {
     },
     GlobalSearchResponse {
         matches: IndexMap<PathBuf, Vec<SearchMatch>>,
-    },
-    DapVariableResponse {
-        variables: Vec<dap_types::Variable>,
-    },
-    DapGetScopesResponse {
-        scopes: Vec<(dap_types::Scope, Vec<dap_types::Variable>)>,
     },
     CreatePathResponse {
         path: PathBuf,
@@ -624,26 +546,6 @@ impl ProxyRpcHandler {
         self.notification(ProxyNotification::GitCheckout { reference });
     }
 
-    pub fn install_volt(&self, volt: VoltInfo) {
-        self.notification(ProxyNotification::InstallVolt { volt });
-    }
-
-    pub fn reload_volt(&self, volt: VoltMetadata) {
-        self.notification(ProxyNotification::ReloadVolt { volt });
-    }
-
-    pub fn remove_volt(&self, volt: VoltMetadata) {
-        self.notification(ProxyNotification::RemoveVolt { volt });
-    }
-
-    pub fn disable_volt(&self, volt: VoltInfo) {
-        self.notification(ProxyNotification::DisableVolt { volt });
-    }
-
-    pub fn enable_volt(&self, volt: VoltInfo) {
-        self.notification(ProxyNotification::EnableVolt { volt });
-    }
-
     pub fn shutdown(&self) {
         self.notification(ProxyNotification::Shutdown {});
         if let Err(err) = self.tx.send(ProxyRpc::Shutdown) {
@@ -654,17 +556,13 @@ impl ProxyRpcHandler {
     pub fn initialize(
         &self,
         workspace: Option<PathBuf>,
-        disabled_volts: Vec<VoltID>,
-        extra_plugin_paths: Vec<PathBuf>,
-        plugin_configurations: HashMap<String, HashMap<String, serde_json::Value>>,
+        lsp_servers: LspServers,
         window_id: usize,
         tab_id: usize,
     ) {
         self.notification(ProxyNotification::Initialize {
             workspace,
-            disabled_volts,
-            extra_plugin_paths,
-            plugin_configurations,
+            lsp_servers,
             window_id,
             tab_id,
         });
@@ -1121,11 +1019,8 @@ impl ProxyRpcHandler {
         self.notification(ProxyNotification::Update { path, delta, rev });
     }
 
-    pub fn update_plugin_configs(
-        &self,
-        configs: HashMap<String, HashMap<String, serde_json::Value>>,
-    ) {
-        self.notification(ProxyNotification::UpdatePluginConfigs { configs });
+    pub fn update_lsp_servers(&self, servers: LspServers) {
+        self.notification(ProxyNotification::UpdateLspServers { servers });
     }
 
     pub fn git_discard_files_changes(&self, files: Vec<PathBuf>) {
@@ -1143,100 +1038,6 @@ impl ProxyRpcHandler {
         f: impl ProxyCallback + 'static,
     ) {
         self.request_async(ProxyRequest::GetSelectionRange { path, positions }, f);
-    }
-
-    pub fn dap_start(
-        &self,
-        config: RunDebugConfig,
-        breakpoints: HashMap<PathBuf, Vec<SourceBreakpoint>>,
-    ) {
-        self.notification(ProxyNotification::DapStart {
-            config,
-            breakpoints,
-        })
-    }
-
-    pub fn dap_process_id(
-        &self,
-        dap_id: DapId,
-        process_id: Option<u32>,
-        term_id: TermId,
-    ) {
-        self.notification(ProxyNotification::DapProcessId {
-            dap_id,
-            process_id,
-            term_id,
-        })
-    }
-
-    pub fn dap_restart(
-        &self,
-        dap_id: DapId,
-        breakpoints: HashMap<PathBuf, Vec<SourceBreakpoint>>,
-    ) {
-        self.notification(ProxyNotification::DapRestart {
-            dap_id,
-            breakpoints,
-        })
-    }
-
-    pub fn dap_continue(&self, dap_id: DapId, thread_id: ThreadId) {
-        self.notification(ProxyNotification::DapContinue { dap_id, thread_id })
-    }
-
-    pub fn dap_step_over(&self, dap_id: DapId, thread_id: ThreadId) {
-        self.notification(ProxyNotification::DapStepOver { dap_id, thread_id })
-    }
-
-    pub fn dap_step_into(&self, dap_id: DapId, thread_id: ThreadId) {
-        self.notification(ProxyNotification::DapStepInto { dap_id, thread_id })
-    }
-
-    pub fn dap_step_out(&self, dap_id: DapId, thread_id: ThreadId) {
-        self.notification(ProxyNotification::DapStepOut { dap_id, thread_id })
-    }
-
-    pub fn dap_pause(&self, dap_id: DapId, thread_id: ThreadId) {
-        self.notification(ProxyNotification::DapPause { dap_id, thread_id })
-    }
-
-    pub fn dap_stop(&self, dap_id: DapId) {
-        self.notification(ProxyNotification::DapStop { dap_id })
-    }
-
-    pub fn dap_disconnect(&self, dap_id: DapId) {
-        self.notification(ProxyNotification::DapDisconnect { dap_id })
-    }
-
-    pub fn dap_set_breakpoints(
-        &self,
-        dap_id: DapId,
-        path: PathBuf,
-        breakpoints: Vec<SourceBreakpoint>,
-    ) {
-        self.notification(ProxyNotification::DapSetBreakpoints {
-            dap_id,
-            path,
-            breakpoints,
-        })
-    }
-
-    pub fn dap_variable(
-        &self,
-        dap_id: DapId,
-        reference: usize,
-        f: impl ProxyCallback + 'static,
-    ) {
-        self.request_async(ProxyRequest::DapVariable { dap_id, reference }, f);
-    }
-
-    pub fn dap_get_scopes(
-        &self,
-        dap_id: DapId,
-        frame_id: usize,
-        f: impl ProxyCallback + 'static,
-    ) {
-        self.request_async(ProxyRequest::DapGetScopes { dap_id, frame_id }, f);
     }
 }
 

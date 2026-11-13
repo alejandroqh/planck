@@ -100,11 +100,10 @@ pub fn alert_box(alert_data: AlertBoxData) -> impl View {
                                         config.color(PlanckColor::PLANCK_BORDER),
                                     )
                                     .hover(|s| {
-                                        s.cursor(CursorStyle::Pointer).background(
-                                            config.color(
-                                                PlanckColor::PANEL_HOVERED_BACKGROUND,
-                                            ),
-                                        )
+                                        s.cursor(CursorStyle::Pointer)
+                                            .background(config.color(
+                                            PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                        ))
                                     })
                                     .active(|s| {
                                         s.background(config.color(
@@ -131,8 +130,9 @@ pub fn alert_box(alert_data: AlertBoxData) -> impl View {
                             .border_color(config.color(PlanckColor::PLANCK_BORDER))
                             .hover(|s| {
                                 s.cursor(CursorStyle::Pointer).background(
-                                    config
-                                        .color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                                    config.color(
+                                        PlanckColor::PANEL_HOVERED_BACKGROUND,
+                                    ),
                                 )
                             })
                             .active(|s| {

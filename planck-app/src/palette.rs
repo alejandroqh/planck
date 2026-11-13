@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
-    ffi::OsString,
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -23,15 +22,15 @@ use floem::{
 };
 use im::Vector;
 use itertools::Itertools;
+use lapce_xi_rope::Rope;
+use lsp_types::{DocumentSymbol, DocumentSymbolResponse};
+use nucleo::Utf32Str;
 use planck_core::{
     buffer::rope_text::RopeText, command::FocusCommand, language::PlanckLanguage,
     line_ending::LineEnding, mode::Mode, movement::Movement, selection::Selection,
     syntax::Syntax,
 };
-use planck_rpc::proxy::{PathRequest, ProxyResponse};
-use lapce_xi_rope::Rope;
-use lsp_types::{DocumentSymbol, DocumentSymbolResponse};
-use nucleo::Utf32Str;
+use planck_rpc::proxy::ProxyResponse;
 use strum::{EnumMessage, IntoEnumIterator};
 use tracing::error;
 
@@ -44,7 +43,6 @@ use crate::{
         CommandExecuted, CommandKind, InternalCommand, PlanckCommand, WindowCommand,
     },
     db::PlanckDb,
-    debug::{RunDebugConfigs, RunDebugMode},
     editor::{
         EditorData,
         location::{EditorLocation, EditorPosition},
@@ -52,9 +50,10 @@ use crate::{
     keypress::{KeyPressData, KeyPressFocus, condition::Condition},
     lsp::path_from_url,
     main_split::MainSplitData,
+    run::RunConfigs,
     source_control::SourceControlData,
     window_tab::{CommonData, Focus},
-    workspace::{PlanckWorkspace, PlanckWorkspaceType, SshHost},
+    workspace::PlanckWorkspace,
 };
 
 pub mod item;
@@ -102,13 +101,12 @@ pub struct PaletteData {
     /// Listened on for which entry in the palette has been clicked
     pub clicked_index: RwSignal<Option<usize>>,
     pub executed_commands: Rc<RefCell<HashMap<String, Instant>>>,
-    pub executed_run_configs: Rc<RefCell<HashMap<(RunDebugMode, String), Instant>>>,
+    pub executed_run_configs: Rc<RefCell<HashMap<String, Instant>>>,
     pub main_split: MainSplitData,
     pub references: RwSignal<Vec<EditorLocation>>,
     pub source_control: SourceControlData,
     pub common: Rc<CommonData>,
     left_diff_path: RwSignal<Option<PathBuf>>,
-    file_chooser_directory: RwSignal<Option<PathBuf>>,
 }
 
 impl std::fmt::Debug for PaletteData {
@@ -216,7 +214,6 @@ impl PaletteData {
 
         let clicked_index = cx.create_rw_signal(Option::<usize>::None);
         let left_diff_path = cx.create_rw_signal(None);
-        let cached_path = cx.create_rw_signal(None);
 
         let palette = Self {
             run_id_counter,
@@ -241,7 +238,6 @@ impl PaletteData {
             source_control,
             common,
             left_diff_path,
-            file_chooser_directory: cached_path,
         };
 
         {
@@ -348,9 +344,6 @@ impl PaletteData {
     /// Get the placeholder text to use in the palette input field.
     pub fn placeholder_text(&self) -> &'static str {
         match self.kind.get() {
-            PaletteKind::SshHost => {
-                "Type [user@]host or select a previously connected workspace below"
-            }
             PaletteKind::DiffFiles => {
                 if self.left_diff_path.with(Option::is_some) {
                     "Select right file"
@@ -375,9 +368,6 @@ impl PaletteData {
             PaletteKind::File | PaletteKind::DiffFiles => {
                 self.get_files();
             }
-            PaletteKind::FileChooser => {
-                self.get_files_in_file_chooser_dir();
-            }
             PaletteKind::HelpAndFile => self.get_palette_help_and_file(),
             PaletteKind::Line => {
                 self.get_lines();
@@ -397,14 +387,7 @@ impl PaletteData {
             PaletteKind::WorkspaceSymbol => {
                 self.get_workspace_symbols();
             }
-            PaletteKind::SshHost => {
-                self.get_ssh_hosts();
-            }
-            #[cfg(windows)]
-            PaletteKind::WslHost => {
-                self.get_wsl_hosts();
-            }
-            PaletteKind::RunAndDebug => {
+            PaletteKind::Run => {
                 self.get_run_configs();
             }
             PaletteKind::ColorTheme => {
@@ -430,78 +413,6 @@ impl PaletteData {
     fn get_palette_help(&self) {
         let items = self.get_palette_help_items();
         self.items.set(items);
-    }
-
-    fn get_files_in_file_chooser_dir(&self) {
-        let input = self.file_chooser_directory.get_untracked();
-        let items_set = self.items.write_only();
-        let internal_command_sender = self.common.internal_command.clone();
-        let file_chooser_directory_writer = self.file_chooser_directory.write_only();
-        let send =
-            create_ext_action(self.common.scope, move |result| match result {
-                Ok(ProxyResponse::ReadDirResponse { items, dir }) => {
-                    let mut palette_items = Vec::new();
-                    let main_path = dir.path.clone();
-                    palette_items.push(PaletteItem {
-                        content: PaletteItemContent::ConfirmFileChooserEntry {
-                            full_path: main_path.clone(),
-                        },
-                        filter_text: main_path
-                            .file_name()
-                            .unwrap_or(&OsString::from("/"))
-                            .to_str()
-                            .unwrap()
-                            .to_string(),
-                        score: 0,
-                        indices: vec![],
-                    });
-                    if let Some(parent) = main_path.parent() {
-                        palette_items.push(PaletteItem {
-                            content: PaletteItemContent::FileChooserEntry {
-                                path: parent.to_path_buf(),
-                                full_path: parent.to_path_buf(),
-                                is_dir: true,
-                            },
-                            filter_text: "..".to_string(),
-                            score: 0,
-                            indices: vec![],
-                        });
-                    }
-                    for item in items {
-                        palette_items.push(PaletteItem {
-                            content: PaletteItemContent::FileChooserEntry {
-                                path: item.path.clone(),
-                                full_path: item.path.clone(),
-                                is_dir: item.is_dir,
-                            },
-                            filter_text: item
-                                .path
-                                .file_name()
-                                .unwrap()
-                                .to_str()
-                                .unwrap()
-                                .to_string(),
-                            score: 0,
-                            indices: vec![],
-                        });
-                    }
-                    // let item_len = palette_items.len();
-                    items_set.set(palette_items.into());
-                }
-                _ => {
-                    internal_command_sender.send(InternalCommand::ShowAlert {
-                        title: format!("Error loading files."),
-                        msg: format!("Could not load file picker."),
-                        buttons: Vec::new(),
-                    });
-                    file_chooser_directory_writer.set(None);
-                }
-            });
-        let input = match input {
-            None => PathRequest::Home,
-            Some(path) => PathRequest::Path(path),
-        };
-        self.common.proxy.read_dir(input, send);
     }
 
     fn get_palette_help_items(&self) -> Vector<PaletteItem> {
@@ -677,7 +588,7 @@ impl PaletteData {
         self.items.set(items);
     }
 
-    /// Initialize the palette with all the available workspaces, local and remote.
+    /// Initialize the palette with the recently opened workspaces.
     fn get_workspaces(&self) {
         let db: Arc<PlanckDb> = use_context().unwrap();
         let workspaces = db.recent_workspaces().unwrap_or_default();
@@ -686,19 +597,9 @@ impl PaletteData {
             .into_iter()
             .filter_map(|w| {
                 let text = w.path.as_ref()?.to_str()?.to_string();
-                let filter_text = match &w.kind {
-                    PlanckWorkspaceType::Local => text,
-                    PlanckWorkspaceType::RemoteSSH(remote) => {
-                        format!("[{remote}] {text}")
-                    }
-                    #[cfg(windows)]
-                    PlanckWorkspaceType::RemoteWSL(remote) => {
-                        format!("[{remote}] {text}")
-                    }
-                };
                 Some(PaletteItem {
                     content: PaletteItemContent::Workspace { workspace: w },
-                    filter_text,
+                    filter_text: text,
                     score: 0,
                     indices: vec![],
                 })
@@ -877,89 +778,8 @@ impl PaletteData {
             });
     }
 
-    fn get_ssh_hosts(&self) {
-        let db: Arc<PlanckDb> = use_context().unwrap();
-        let workspaces = db.recent_workspaces().unwrap_or_default();
-        let mut hosts = HashSet::new();
-        for workspace in workspaces.iter() {
-            if let PlanckWorkspaceType::RemoteSSH(host) = &workspace.kind {
-                hosts.insert(host.clone());
-            }
-        }
-
-        let items = hosts
-            .iter()
-            .map(|host| PaletteItem {
-                content: PaletteItemContent::SshHost { host: host.clone() },
-                filter_text: host.to_string(),
-                score: 0,
-                indices: vec![],
-            })
-            .collect();
-        self.items.set(items);
-    }
-
-    #[cfg(windows)]
-    fn get_wsl_hosts(&self) {
-        use std::{os::windows::process::CommandExt, process};
-        let cmd = process::Command::new("wsl")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .arg("-l")
-            .arg("-v")
-            .stdout(process::Stdio::piped())
-            .output();
-
-        let distros = if let Ok(proc) = cmd {
-            let distros = String::from_utf16(bytemuck::cast_slice(&proc.stdout))
-                .unwrap_or_default()
-                .lines()
-                .skip(1)
-                .filter_map(|line| {
-                    let line = line.trim_start();
-                    // let default = line.starts_with('*');
-                    let name = line
-                        .trim_start_matches('*')
-                        .trim_start()
-                        .split(' ')
-                        .next()?;
-                    Some(name.to_string())
-                })
-                .collect();
-
-            distros
-        } else {
-            vec![]
-        };
-
-        let db: Arc<PlanckDb> = use_context().unwrap();
-        let workspaces = db.recent_workspaces().unwrap_or_default();
-        let mut hosts = HashSet::new();
-        for distro in distros {
-            hosts.insert(distro);
-        }
-
-        for workspace in workspaces.iter() {
-            if let PlanckWorkspaceType::RemoteWSL(host) = &workspace.kind {
-                hosts.insert(host.host.clone());
-            }
-        }
-
-        let items = hosts
-            .iter()
-            .map(|host| PaletteItem {
-                content: PaletteItemContent::WslHost {
-                    host: crate::workspace::WslHost { host: host.clone() },
-                },
-                filter_text: host.to_string(),
-                score: 0,
-                indices: vec![],
-            })
-            .collect();
-        self.items.set(items);
-    }
-
     fn set_run_configs(&self, content: String) {
-        let configs: Option<RunDebugConfigs> = toml::from_str(&content).ok();
+        let configs: Option<RunConfigs> = toml::from_str(&content).ok();
         if configs.is_none() {
             if let Some(path) = self.workspace.path.as_ref() {
                 let path = path.join(".planck").join("run.toml");
@@ -974,11 +794,9 @@ impl PaletteData {
         if let Some(configs) = configs.as_ref() {
             for config in &configs.configs {
                 items.push((
-                    executed_run_configs
-                        .get(&(RunDebugMode::Run, config.name.clone())),
+                    executed_run_configs.get(&config.name),
                     PaletteItem {
-                        content: PaletteItemContent::RunAndDebug {
-                            mode: RunDebugMode::Run,
+                        content: PaletteItemContent::Run {
                             config: config.clone(),
                         },
                         filter_text: format!(
@@ -991,26 +809,6 @@ impl PaletteData {
                         indices: vec![],
                     },
                 ));
-                if config.ty.is_some() {
-                    items.push((
-                        executed_run_configs
-                            .get(&(RunDebugMode::Debug, config.name.clone())),
-                        PaletteItem {
-                            content: PaletteItemContent::RunAndDebug {
-                                mode: RunDebugMode::Debug,
-                                config: config.clone(),
-                            },
-                            filter_text: format!(
-                                "Debug {} {} {}",
-                                config.name,
-                                config.program,
-                                config.args.clone().unwrap_or_default().join(" ")
-                            ),
-                            score: 0,
-                            indices: vec![],
-                        },
-                    ));
-                }
             }
         }
 
@@ -1237,37 +1035,6 @@ impl PaletteData {
                         );
                     }
                 }
-                PaletteItemContent::FileChooserEntry {
-                    full_path, is_dir, ..
-                } => {
-                    if *is_dir {
-                        self.file_chooser_directory.set(Some(full_path.clone()));
-                        self.run(PaletteKind::FileChooser);
-                    } else {
-                        self.common.internal_command.send(
-                            InternalCommand::OpenFile {
-                                path: full_path.clone(),
-                            },
-                        );
-                    }
-                }
-                PaletteItemContent::ConfirmFileChooserEntry {
-                    full_path, ..
-                } => {
-                    let kind = self.workspace.kind.clone();
-                    let workspace = PlanckWorkspace {
-                        kind,
-                        path: Some(full_path.clone()),
-                        last_open: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                    };
-                    self.common
-                        .window_common
-                        .window_command
-                        .send(WindowCommand::SetWorkspace { workspace });
-                }
                 PaletteItemContent::Line { line, .. } => {
                     let editor = self.main_split.active_editor.get_untracked();
                     let doc = match editor {
@@ -1312,29 +1079,6 @@ impl PaletteData {
                         },
                     );
                 }
-                PaletteItemContent::SshHost { host } => {
-                    self.common.window_common.window_command.send(
-                        WindowCommand::SetWorkspace {
-                            workspace: PlanckWorkspace {
-                                kind: PlanckWorkspaceType::RemoteSSH(host.clone()),
-                                path: None,
-                                last_open: 0,
-                            },
-                        },
-                    );
-                }
-                #[cfg(windows)]
-                PaletteItemContent::WslHost { host } => {
-                    self.common.window_common.window_command.send(
-                        WindowCommand::SetWorkspace {
-                            workspace: PlanckWorkspace {
-                                kind: PlanckWorkspaceType::RemoteWSL(host.clone()),
-                                path: None,
-                                last_open: 0,
-                            },
-                        },
-                    );
-                }
                 PaletteItemContent::DocumentSymbol { range, .. } => {
                     let editor = self.main_split.active_editor.get_untracked();
                     let doc = match editor {
@@ -1371,13 +1115,13 @@ impl PaletteData {
                         },
                     );
                 }
-                PaletteItemContent::RunAndDebug { mode, config } => {
-                    self.common.internal_command.send(
-                        InternalCommand::RunAndDebug {
-                            mode: *mode,
-                            config: config.clone(),
-                        },
-                    );
+                PaletteItemContent::Run { config } => {
+                    self.executed_run_configs
+                        .borrow_mut()
+                        .insert(config.name.clone(), Instant::now());
+                    self.common.internal_command.send(InternalCommand::Run {
+                        config: config.clone(),
+                    });
                 }
                 PaletteItemContent::ColorTheme { name } => self
                     .common
@@ -1440,18 +1184,6 @@ impl PaletteData {
                         profile: Some(profile.to_owned()),
                     }),
             }
-        } else if self.kind.get_untracked() == PaletteKind::SshHost {
-            let input = self.input.with_untracked(|input| input.input.clone());
-            let ssh = SshHost::from_string(&input);
-            self.common.window_common.window_command.send(
-                WindowCommand::SetWorkspace {
-                    workspace: PlanckWorkspace {
-                        kind: PlanckWorkspaceType::RemoteSSH(ssh),
-                        path: None,
-                        last_open: 0,
-                    },
-                },
-            );
         }
     }
 
@@ -1467,8 +1199,6 @@ impl PaletteData {
             match &item.content {
                 PaletteItemContent::PaletteHelp { .. } => {}
                 PaletteItemContent::File { .. } => {}
-                PaletteItemContent::FileChooserEntry { .. } => {}
-                PaletteItemContent::ConfirmFileChooserEntry { .. } => {}
                 PaletteItemContent::Line { line, .. } => {
                     self.has_preview.set(true);
                     let editor = self.main_split.active_editor.get_untracked();
@@ -1500,10 +1230,7 @@ impl PaletteData {
                 }
                 PaletteItemContent::Command { .. } => {}
                 PaletteItemContent::Workspace { .. } => {}
-                PaletteItemContent::RunAndDebug { .. } => {}
-                PaletteItemContent::SshHost { .. } => {}
-                #[cfg(windows)]
-                PaletteItemContent::WslHost { .. } => {}
+                PaletteItemContent::Run { .. } => {}
                 PaletteItemContent::Language { .. } => {}
                 PaletteItemContent::LineEnding { .. } => {}
                 PaletteItemContent::Reference { location, .. } => {
