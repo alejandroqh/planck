@@ -178,6 +178,14 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Close Folder")]
     CloseFolder,
 
+    #[strum(serialize = "open_space")]
+    #[strum(message = "Open Space")]
+    OpenSpace,
+
+    #[strum(serialize = "add_folder_to_space")]
+    #[strum(message = "Add Folder to Space")]
+    AddFolderToSpace,
+
     #[strum(serialize = "open_file")]
     #[strum(message = "Open File")]
     OpenFile,

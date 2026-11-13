@@ -596,7 +596,10 @@ impl PaletteData {
         let items = workspaces
             .into_iter()
             .filter_map(|w| {
-                let text = w.path.as_ref()?.to_str()?.to_string();
+                let text = w.to_string();
+                if text.is_empty() {
+                    return None;
+                }
                 Some(PaletteItem {
                     content: PaletteItemContent::Workspace { workspace: w },
                     filter_text: text,

@@ -13,9 +13,9 @@ use std::{
 use alacritty_terminal::vte::ansi::Handler;
 use floem::{
     ViewId,
-    action::{TimerToken, open_file, remove_overlay},
+    action::{TimerToken, open_file, remove_overlay, save_as},
     ext_event::{create_ext_action, create_signal_from_channel},
-    file::FileDialogOptions,
+    file::{FileDialogOptions, FileSpec},
     keyboard::Modifiers,
     kurbo::Size,
     peniko::kurbo::{Point, Rect, Vec2},
@@ -94,7 +94,7 @@ use crate::{
     },
     tracing::*,
     window::WindowCommonData,
-    workspace::{PlanckWorkspace, WorkspaceInfo},
+    workspace::{PlanckWorkspace, SPACE_EXTENSION, WorkspaceInfo, add_space_folder},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,6 +282,28 @@ impl KeyPressFocus for WindowTabData {
     fn receive_char(&self, _c: &str) {}
 }
 
+const SPACE_FILE_SPEC: FileSpec = FileSpec {
+    name: "Planck Space",
+    extensions: &[SPACE_EXTENSION],
+};
+
+/// Adds folders to a space file, then reopens the space in the current window tab.
+fn add_folder_and_reopen(
+    window_command: Listener<WindowCommand>,
+    space: PathBuf,
+    folders: Vec<PathBuf>,
+) {
+    for folder in &folders {
+        if let Err(err) = add_space_folder(&space, folder) {
+            tracing::error!("failed to add {folder:?} to {space:?}: {err:?}");
+            return;
+        }
+    }
+    window_command.send(WindowCommand::SetWorkspace {
+        workspace: PlanckWorkspace::from_path(space),
+    });
+}
+
 impl WindowTabData {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -291,6 +313,12 @@ impl WindowTabData {
     ) -> Self {
         let cx = cx.create_child();
         let db: Arc<PlanckDb> = use_context().unwrap();
+        // Re-read the space file on every open so edits made outside Planck apply.
+        let workspace = if workspace.space.is_some() {
+            Arc::new((*workspace).clone().load_space())
+        } else {
+            workspace
+        };
 
         let workspace_info = if workspace.path.is_some() {
             db.get_workspace_info(&workspace).ok()
@@ -653,31 +681,74 @@ impl WindowTabData {
                     };
                     open_file(options, move |file| {
                         if let Some(mut file) = file {
-                            let workspace = PlanckWorkspace {
-                                path: Some(if let Some(path) = file.path.pop() {
-                                    path
-                                } else {
-                                    tracing::error!("No path");
-                                    return;
-                                }),
-                                last_open: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs(),
+                            let Some(path) = file.path.pop() else {
+                                tracing::error!("No path");
+                                return;
                             };
+                            let workspace = PlanckWorkspace::from_path(path);
                             window_command
                                 .send(WindowCommand::SetWorkspace { workspace });
                         }
                     });
                 }
             }
+            OpenSpace => {
+                let window_command = self.common.window_common.window_command;
+                let options = FileDialogOptions::new()
+                    .title("Choose a space")
+                    .allowed_types(vec![SPACE_FILE_SPEC]);
+                open_file(options, move |file| {
+                    if let Some(path) = file.and_then(|mut f| f.path.pop()) {
+                        window_command.send(WindowCommand::SetWorkspace {
+                            workspace: PlanckWorkspace::from_path(path),
+                        });
+                    }
+                });
+            }
+            AddFolderToSpace => {
+                let window_command = self.common.window_common.window_command;
+                let current = (*self.workspace).clone();
+                let mut options = FileDialogOptions::new()
+                    .title("Choose a folder to add")
+                    .select_directories();
+                if let Some(parent) = current.path.as_ref().and_then(|p| p.parent()) {
+                    options = options.force_starting_directory(parent);
+                }
+                open_file(options, move |file| {
+                    let Some(folder) = file.and_then(|mut f| f.path.pop()) else {
+                        return;
+                    };
+                    if let Some(space) = current.space.clone() {
+                        add_folder_and_reopen(window_command, space, vec![folder]);
+                        return;
+                    }
+                    // No space yet: save one holding the open folder plus the new one.
+                    let folders: Vec<PathBuf> =
+                        current.path.iter().cloned().chain([folder]).collect();
+                    let mut options = FileDialogOptions::new()
+                        .title("Save the new space")
+                        .allowed_types(vec![SPACE_FILE_SPEC]);
+                    if let Some(first) = folders.first() {
+                        let name = first.file_name().unwrap_or_default().to_string_lossy();
+                        options = options.default_name(format!("{name}.{SPACE_EXTENSION}"));
+                        if let Some(parent) = first.parent() {
+                            options = options.force_starting_directory(parent);
+                        }
+                    }
+                    save_as(options, move |file| {
+                        if let Some(mut space) = file.and_then(|mut f| f.path.pop()) {
+                            if !PlanckWorkspace::is_space_file(&space) {
+                                space.set_extension(SPACE_EXTENSION);
+                            }
+                            add_folder_and_reopen(window_command, space, folders.clone());
+                        }
+                    });
+                });
+            }
             CloseFolder => {
                 {
                     let window_command = self.common.window_common.window_command;
-                    let workspace = PlanckWorkspace {
-                        path: None,
-                        last_open: 0,
-                    };
+                    let workspace = PlanckWorkspace::default();
                     window_command.send(WindowCommand::SetWorkspace { workspace });
                 }
             }
@@ -2526,16 +2597,14 @@ impl WindowTabData {
     }
 
     pub fn open_paths(&self, paths: &[PathObject]) {
-        let (folders, files): (Vec<&PathObject>, Vec<&PathObject>) =
-            paths.iter().partition(|p| p.is_dir);
+        let (folders, files): (Vec<&PathObject>, Vec<&PathObject>) = paths
+            .iter()
+            .partition(|p| p.is_dir || PlanckWorkspace::is_space_file(&p.path));
 
         for folder in folders {
             self.common.window_common.window_command.send(
                 WindowCommand::NewWorkspaceTab {
-                    workspace: PlanckWorkspace {
-                        path: Some(folder.path.clone()),
-                        last_open: 0,
-                    },
+                    workspace: PlanckWorkspace::from_path(folder.path.clone()),
                     end: false,
                 },
             );

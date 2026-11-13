@@ -111,7 +111,7 @@ impl PlanckDb {
         &self,
         workspace: &PlanckWorkspace,
     ) -> Result<()> {
-        if workspace.path.is_none() {
+        if workspace.path.is_none() && workspace.space.is_none() {
             return Ok(());
         }
         self.save_tx
@@ -124,7 +124,7 @@ impl PlanckDb {
 
         let mut exits = false;
         for w in workspaces.iter_mut() {
-            if w.path == workspace.path {
+            if w.to_string() == workspace.to_string() {
                 w.last_open = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()

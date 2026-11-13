@@ -126,6 +126,9 @@ fn middle(
                 .entry(MenuItem::new("Open Folder").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::OpenFolder);
                 }))
+                .entry(MenuItem::new("Open Space").action(move || {
+                    workbench_command.send(PlanckWorkbenchCommand::OpenSpace);
+                }))
                 .entry(MenuItem::new("Open Recent Workspace").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::PaletteWorkspace);
                 }))

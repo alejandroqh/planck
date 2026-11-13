@@ -222,10 +222,7 @@ impl AppData {
         } else {
             config
         };
-        let workspace = PlanckWorkspace {
-            path: folder,
-            ..Default::default()
-        };
+        let workspace = folder.map(PlanckWorkspace::from_path).unwrap_or_default();
         let app_data = self.clone();
         floem::new_window(
             move |window_id| {
@@ -299,8 +296,9 @@ impl AppData {
 
         // Split user input into known existing directors and
         // file paths that exist or not
-        let (dirs, files): (Vec<&PathObject>, Vec<&PathObject>) =
-            paths.iter().partition(|p| p.is_dir);
+        let (dirs, files): (Vec<&PathObject>, Vec<&PathObject>) = paths
+            .iter()
+            .partition(|p| p.is_dir || PlanckWorkspace::is_space_file(&p.path));
 
         let files: Vec<PathObject> = files.into_iter().cloned().collect();
         let mut files = if files.is_empty() { None } else { Some(files) };
@@ -321,10 +319,9 @@ impl AppData {
                     maximised: false,
                     tabs: TabsInfo {
                         active_tab: 0,
-                        workspaces: vec![PlanckWorkspace {
-                            path: Some(dir.path.to_owned()),
-                            last_open: 0,
-                        }],
+                        workspaces: vec![PlanckWorkspace::from_path(
+                            dir.path.to_owned(),
+                        )],
                     },
                 };
 
@@ -624,7 +621,9 @@ impl AppData {
             })
             .on_event_stop(EventListener::DroppedFile, move |event: &Event| {
                 if let Event::DroppedFile(file) = event {
-                    if file.path.is_dir() {
+                    if file.path.is_dir()
+                        || PlanckWorkspace::is_space_file(&file.path)
+                    {
                         app_command.send(AppCommand::NewWindow {
                             folder: Some(file.path.clone()),
                         });
@@ -3304,12 +3303,6 @@ fn window_tab(window_tab_data: Rc<WindowTabData>) -> impl View {
     view
 }
 
-fn workspace_title(workspace: &PlanckWorkspace) -> Option<String> {
-    let p = workspace.path.as_ref()?;
-    let dir = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
-    Some(dir.to_string())
-}
-
 fn workspace_tab_header(window_data: WindowData) -> impl View {
     let tabs = window_data.window_tabs;
     let active = window_data.active;
@@ -3353,7 +3346,8 @@ fn workspace_tab_header(window_data: WindowData) -> impl View {
                 stack((
                     stack((
                         text(
-                            workspace_title(&tab.workspace)
+                            tab.workspace
+                                .display()
                                 .unwrap_or_else(|| String::from("New Tab")),
                         )
                         .style(|s| {
