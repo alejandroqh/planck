@@ -33,7 +33,7 @@
         </screenshot>
     </screenshots>
     <releases>
-        <release version="0.1.0" date="2026-11-13" type="development">
+        <release version="1.0.0" date="2026-11-13" type="development">
             <description>
                 <p>First Planck release, forked from Lapce 0.4.6.</p>
             </description>

@@ -1,6 +1,6 @@
 # Changelog
 
-## Planck 0.1.0 (unreleased)
+## Planck 1.0.0 (unreleased)
 
 Planck is forked from Lapce 0.4.6.
 
