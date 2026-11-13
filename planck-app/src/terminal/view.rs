@@ -75,6 +75,8 @@ pub struct TerminalView {
     current_mouse_action: MouseAction,
     /// Shaped glyphs keyed by (char, bold, fg rgba), cleared on config change.
     glyph_cache: RefCell<HashMap<(char, bool, u32), TextLayout>>,
+    /// Size of one cell, recomputed on config change.
+    char_size: Size,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -147,12 +149,16 @@ pub fn terminal_view(
         previous_mouse_action: Default::default(),
         current_mouse_action: Default::default(),
         glyph_cache: Default::default(),
+        char_size: TerminalView::measure_char_size(&config.get_untracked()),
     }
 }
 
 impl TerminalView {
     fn char_size(&self) -> Size {
-        let config = self.config.get_untracked();
+        self.char_size
+    }
+
+    fn measure_char_size(config: &PlanckConfig) -> Size {
         let font_family = config.terminal_font_family();
         let font_size = config.terminal_font_size();
         let family: Vec<FamilyOwned> =
@@ -603,6 +609,8 @@ impl View for TerminalView {
             match *state {
                 TerminalViewState::Config => {
                     self.glyph_cache.borrow_mut().clear();
+                    self.char_size =
+                        Self::measure_char_size(&self.config.get_untracked());
                 }
                 TerminalViewState::Focus(is_focused) => {
                     self.is_focused = is_focused;
