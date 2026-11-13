@@ -1,0 +1,22 @@
+<!-- Source of every Planck logo and icon: run extra/generate-icons.py after editing.
+     Max Planck reduced to his round spectacles and bow tie. The tile follows the
+     macOS 1024 grid (824 square, 100 margin); "mark" must keep its own color. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sepia" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4E3828"/>
+      <stop offset="1" stop-color="#2E2018"/>
+    </linearGradient>
+  </defs>
+  <rect id="tile" x="100" y="100" width="824" height="824" rx="185" fill="url(#sepia)"/>
+  <g id="mark" color="#F1E4C9" fill="none" stroke="currentColor">
+    <circle cx="362" cy="366" r="100" stroke-width="52"/>
+    <circle cx="662" cy="366" r="100" stroke-width="52"/>
+    <path d="M452.6 323.7A70 70 0 0 1 571.4 323.7" stroke-width="44" stroke-linecap="round"/>
+    <g fill="currentColor" stroke-width="16" stroke-linejoin="round">
+      <path d="M352 628L468 680V728L352 780Z"/>
+      <path d="M672 628L556 680V728L672 780Z"/>
+      <rect x="486" y="666" width="52" height="76" rx="14" stroke="none"/>
+    </g>
+  </g>
+</svg>
