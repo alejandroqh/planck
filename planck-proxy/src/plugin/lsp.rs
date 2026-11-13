@@ -236,6 +236,7 @@ impl LspClient {
                             &local_server_rpc,
                             &message_str,
                             &name,
+                            &io_tx,
                         ) {
                             if let Err(err) = io_tx.send(resp) {
                                 tracing::error!("{:?}", err);

@@ -536,6 +536,7 @@ pub fn handle_plugin_server_message(
     server_rpc: &PluginServerRpcHandler,
     message: &str,
     from: &str,
+    io_tx: &Sender<JsonRpc>,
 ) -> Option<JsonRpc> {
     match JsonRpc::parse(message) {
         Ok(value @ JsonRpc::Request(_)) => {
@@ -548,19 +549,27 @@ pub fn handle_plugin_server_message(
                 resp: ResponseSender::new(tx),
             };
             server_rpc.handle_rpc(rpc);
-            let result = rx.recv().unwrap();
-            let resp = match result {
-                Ok(v) => JsonRpc::success(id, &v),
-                Err(e) => JsonRpc::error(
-                    id,
-                    jsonrpc_lite::Error {
-                        code: e.code,
-                        message: e.message,
-                        data: None,
-                    },
-                ),
-            };
-            Some(resp)
+            // Answer from another thread: blocking the stdout reader here deadlocks
+            // when the mainloop is itself waiting on a server response (e.g. initialize).
+            let io_tx = io_tx.clone();
+            std::thread::spawn(move || {
+                let Ok(result) = rx.recv() else { return };
+                let resp = match result {
+                    Ok(v) => JsonRpc::success(id, &v),
+                    Err(e) => JsonRpc::error(
+                        id,
+                        jsonrpc_lite::Error {
+                            code: e.code,
+                            message: e.message,
+                            data: None,
+                        },
+                    ),
+                };
+                if let Err(err) = io_tx.send(resp) {
+                    tracing::error!("{:?}", err);
+                }
+            });
+            None
         }
         Ok(value @ JsonRpc::Notification(_)) => {
             let rpc = PluginServerRpc::HostNotification {
