@@ -71,6 +71,10 @@ pub enum PaletteItemContent {
     SCMReference {
         name: String,
     },
+    /// A git revision to compare the active file with.
+    Revision {
+        rev: String,
+    },
     TerminalProfile {
         name: String,
         profile: planck_rpc::terminal::TerminalProfile,

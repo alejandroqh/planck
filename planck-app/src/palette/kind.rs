@@ -18,6 +18,7 @@ pub enum PaletteKind {
     Language,
     LineEnding,
     SCMReferences,
+    CompareRevision,
     TerminalProfile,
     DiffFiles,
     HelpAndFile,
@@ -43,6 +44,7 @@ impl PaletteKind {
             | PaletteKind::Language
             | PaletteKind::LineEnding
             | PaletteKind::SCMReferences
+            | PaletteKind::CompareRevision
             | PaletteKind::HelpAndFile
             | PaletteKind::DiffFiles => "",
         }
@@ -94,6 +96,9 @@ impl PaletteKind {
             PaletteKind::SCMReferences => {
                 Some(PlanckWorkbenchCommand::PaletteSCMReferences)
             }
+            PaletteKind::CompareRevision => {
+                Some(PlanckWorkbenchCommand::PaletteCompareRevision)
+            }
             PaletteKind::TerminalProfile => None, // InternalCommand::NewTerminal
             PaletteKind::DiffFiles => Some(PlanckWorkbenchCommand::DiffFiles),
         }
@@ -119,7 +124,9 @@ impl PaletteKind {
             | PaletteKind::IconTheme
             | PaletteKind::Language
             | PaletteKind::LineEnding
-            | PaletteKind::SCMReferences | PaletteKind::HelpAndFile
+            | PaletteKind::SCMReferences
+            | PaletteKind::CompareRevision
+            | PaletteKind::HelpAndFile
             | PaletteKind::DiffFiles => input,
             PaletteKind::PaletteHelp
             | PaletteKind::Command

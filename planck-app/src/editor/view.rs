@@ -47,7 +47,7 @@ use planck_core::{
     cursor::{CursorAffinity, CursorMode},
     selection::SelRegion,
 };
-use planck_rpc::{plugin::PluginId, source_control::BlameCommit};
+use planck_rpc::{plugin::PluginId, source_control::CommitInfo};
 
 use super::{
     DocSignal, EditorData, gutter::editor_gutter_view, minimap::minimap_view,
@@ -1241,7 +1241,7 @@ impl View for EditorView {
 }
 
 /// GitLens style annotation, like "Ada, 3 days ago • Fix the parser".
-fn blame_text(commit: Option<&BlameCommit>, now: i64) -> String {
+pub(crate) fn blame_text(commit: Option<&CommitInfo>, now: i64) -> String {
     let Some(commit) = commit else {
         return "You • Uncommitted changes".to_string();
     };
@@ -2569,13 +2569,14 @@ pub fn changes_colors_all(
 
 #[cfg(test)]
 mod tests {
-    use planck_rpc::source_control::BlameCommit;
+    use planck_rpc::source_control::CommitInfo;
 
     use super::blame_text;
 
     #[test]
     fn blame_text_reads_like_gitlens() {
-        let commit = |time, summary: &str| BlameCommit {
+        let commit = |time, summary: &str| CommitInfo {
+            id: String::new(),
             author: "Ada".to_string(),
             time,
             summary: summary.to_string(),

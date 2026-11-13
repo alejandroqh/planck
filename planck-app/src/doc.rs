@@ -1423,9 +1423,7 @@ impl Doc {
 
             let path = path.clone();
             let proxy = self.common.proxy.clone();
-            proxy.get_buffer_head(path, move |result| {
-                send(result);
-            });
+            proxy.get_buffer_head(path, "head".to_string(), send);
         }
     }
 

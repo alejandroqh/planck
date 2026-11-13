@@ -37,7 +37,7 @@ use planck_rpc::{
         ProxyHandler, ProxyNotification, ProxyRequest, ProxyResponse,
         ProxyRpcHandler, SearchMatch,
     },
-    source_control::{BlameCommit, BlameHunk, DiffInfo, FileDiff},
+    source_control::{BlameHunk, CommitInfo, DiffInfo, FileDiff},
     style::{LineStyle, SemanticStyles},
     terminal::TermId,
 };
@@ -320,26 +320,16 @@ impl ProxyHandler for Dispatcher {
                     Ok(ProxyResponse::NewBufferResponse { content, read_only }),
                 );
             }
-            BufferHead { path } => {
-                let result = if let Some(workspace) = self.workspace.as_ref() {
-                    let result = file_get_head(workspace, &path);
-                    if let Ok((_blob_id, content)) = result {
-                        Ok(ProxyResponse::BufferHeadResponse {
-                            version: "head".to_string(),
-                            content,
-                        })
-                    } else {
-                        Err(RpcError {
-                            code: 0,
-                            message: "can't get file head".to_string(),
-                        })
-                    }
-                } else {
-                    Err(RpcError {
-                        code: 0,
-                        message: "no workspace set".to_string(),
+            BufferHead { path, version } => {
+                let result = file_at_version(&path, &version)
+                    .map(|content| ProxyResponse::BufferHeadResponse {
+                        version,
+                        content,
                     })
-                };
+                    .map_err(|e| RpcError {
+                        code: 0,
+                        message: format!("can't get file at version: {e}"),
+                    });
                 self.respond_rpc(id, result);
             }
             GlobalSearch {
@@ -452,6 +442,20 @@ impl ProxyHandler for Dispatcher {
                 thread::spawn(move || {
                     let result = git_blame(&path, &content.to_string())
                         .map(|hunks| ProxyResponse::GitBlameResponse { hunks })
+                        .map_err(|e| RpcError {
+                            code: 0,
+                            message: e.to_string(),
+                        });
+                    proxy_rpc.handle_response(id, result);
+                });
+            }
+            GitFileCommits { path } => {
+                let proxy_rpc = self.proxy_rpc.clone();
+                thread::spawn(move || {
+                    let result = git_file_commits(&path, 200)
+                        .map(|commits| ProxyResponse::GitFileCommitsResponse {
+                            commits,
+                        })
                         .map_err(|e| RpcError {
                             code: 0,
                             message: e.to_string(),
@@ -1556,17 +1560,71 @@ fn git_diff_new(workspace_path: &Path) -> Option<DiffInfo> {
     })
 }
 
-fn file_get_head(workspace_path: &Path, path: &Path) -> Result<(String, String)> {
-    let repo = Repository::discover(workspace_path)?;
-    let head = repo.head()?;
-    let tree = head.peel_to_tree()?;
-    let tree_entry = tree.get_path(path.strip_prefix(workspace_path)?)?;
-    let blob = repo.find_blob(tree_entry.id())?;
-    let id = blob.id().to_string();
-    let content = std::str::from_utf8(blob.content())
-        .with_context(|| "content bytes to string")?
-        .to_string();
-    Ok((id, content))
+/// The content of `path` at `version`: "head" or a git revision such as a branch or commit.
+fn file_at_version(path: &Path, version: &str) -> Result<String> {
+    let repo = Repository::discover(path.parent().unwrap_or(path))?;
+    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
+    let spec = if version == "head" { "HEAD" } else { version };
+    let tree = repo.revparse_single(spec)?.peel_to_tree()?;
+    let blob = repo.find_blob(tree.get_path(path.strip_prefix(workdir)?)?.id())?;
+    Ok(std::str::from_utf8(blob.content())
+        .context("content bytes to string")?
+        .to_string())
+}
+
+/// The newest commits reachable from HEAD that changed `path`, at most `limit`.
+fn git_file_commits(path: &Path, limit: usize) -> Result<Vec<CommitInfo>> {
+    let repo = Repository::discover(path.parent().unwrap_or(path))?;
+    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
+    let path = path.strip_prefix(workdir)?;
+    let you = repo.config()?.get_string("user.email").ok();
+    let file_id = |commit: &git2::Commit| {
+        commit
+            .tree()
+            .ok()?
+            .get_path(path)
+            .ok()
+            .map(|entry| entry.id())
+    };
+    let mut walk = repo.revwalk()?;
+    walk.push_head()?;
+    walk.set_sorting(git2::Sort::TIME)?;
+    let mut commits = Vec::new();
+    for id in walk {
+        let commit = repo.find_commit(id?)?;
+        let id = file_id(&commit);
+        // Changed: differs from every parent, so merges that kept one side don't count.
+        if id.is_some() && commit.parents().all(|parent| file_id(&parent) != id) {
+            commits.push(commit_info(&commit, you.as_deref()));
+            if commits.len() == limit {
+                break;
+            }
+        }
+    }
+    Ok(commits)
+}
+
+fn commit_info(commit: &git2::Commit, you: Option<&str>) -> CommitInfo {
+    let author = commit.author();
+    let is_you = you
+        .zip(author.email().ok())
+        .is_some_and(|(you, email)| you.eq_ignore_ascii_case(email));
+    CommitInfo {
+        id: commit.id().to_string(),
+        author: if is_you {
+            "You"
+        } else {
+            author.name().unwrap_or_default()
+        }
+        .to_string(),
+        time: author.when().seconds(),
+        summary: commit
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string(),
+    }
 }
 
 /// Blame of `content`, the open buffer of `path`: lines it changed since HEAD are uncommitted.
@@ -1585,27 +1643,7 @@ fn git_blame(path: &Path, content: &str) -> Result<Vec<BlameHunk>> {
         let commit = if id.is_zero() {
             None
         } else {
-            let commit = repo.find_commit(id)?;
-            let author = commit.author();
-            let is_you = you
-                .as_deref()
-                .zip(author.email().ok())
-                .is_some_and(|(you, email)| you.eq_ignore_ascii_case(email));
-            Some(BlameCommit {
-                author: if is_you {
-                    "You"
-                } else {
-                    author.name().unwrap_or_default()
-                }
-                .to_string(),
-                time: author.when().seconds(),
-                summary: commit
-                    .summary()
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default()
-                    .to_string(),
-            })
+            Some(commit_info(&repo.find_commit(id)?, you.as_deref()))
         };
         hunks.push(BlameHunk {
             start_line: hunk.final_start_line().saturating_sub(1),
@@ -1751,23 +1789,39 @@ fn search_in_path(
 mod tests {
     use super::*;
 
-    #[test]
-    fn git_blame_marks_buffer_edits_uncommitted() {
-        let dir = std::env::temp_dir()
-            .join(format!("planck-blame-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let repo = Repository::init(&dir).unwrap();
-        repo.config()
-            .unwrap()
-            .set_str("user.email", "ada@example.com")
-            .unwrap();
-        fs::write(dir.join("notes.txt"), "one\ntwo\n").unwrap();
+    /// Commits `content` as notes.txt in a repository at `dir`, created on first use.
+    fn commit_notes(dir: &Path, content: &str, message: &str) -> Oid {
+        let repo = Repository::open(dir).unwrap_or_else(|_| {
+            let repo = Repository::init(dir).unwrap();
+            repo.config()
+                .unwrap()
+                .set_str("user.email", "ada@example.com")
+                .unwrap();
+            repo
+        });
+        fs::write(dir.join("notes.txt"), content).unwrap();
         let mut index = repo.index().unwrap();
         index.add_path(Path::new("notes.txt")).unwrap();
         let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
         let ada = git2::Signature::now("Ada", "ada@example.com").unwrap();
-        repo.commit(Some("HEAD"), &ada, &ada, "add notes\n\nbody", &tree, &[])
-            .unwrap();
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<_> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &ada, &ada, message, &tree, &parents)
+            .unwrap()
+    }
+
+    fn temp_repo_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("planck-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn git_blame_marks_buffer_edits_uncommitted() {
+        let dir = temp_repo_dir("blame");
+        commit_notes(&dir, "one\ntwo\n", "add notes\n\nbody");
 
         let hunks = git_blame(&dir.join("notes.txt"), "one\nnew\ntwo\n");
         fs::remove_dir_all(&dir).unwrap();
@@ -1786,5 +1840,27 @@ mod tests {
         assert_eq!(line(0), Some(("You", "add notes")));
         assert_eq!(line(1), None);
         assert_eq!(line(2), Some(("You", "add notes")));
+    }
+
+    #[test]
+    fn file_versions_and_commits() {
+        let dir = temp_repo_dir("versions");
+        let first = commit_notes(&dir, "one\n", "add notes");
+        commit_notes(&dir, "one\ntwo\n", "add two");
+        let path = dir.join("notes.txt");
+
+        let head = file_at_version(&path, "head");
+        let old = file_at_version(&path, &first.to_string());
+        let parent = file_at_version(&path, "HEAD~1");
+        let commits = git_file_commits(&path, 10);
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(head.unwrap(), "one\ntwo\n");
+        assert_eq!(old.unwrap(), "one\n");
+        assert_eq!(parent.unwrap(), "one\n");
+        let commits = commits.unwrap();
+        let summaries: Vec<_> = commits.iter().map(|c| c.summary.as_str()).collect();
+        assert_eq!(summaries, ["add two", "add notes"]);
+        assert_eq!(commits[1].id, first.to_string());
     }
 }

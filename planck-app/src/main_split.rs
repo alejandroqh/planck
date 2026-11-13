@@ -691,13 +691,13 @@ impl MainSplitData {
         }
     }
 
-    pub fn open_file_changes(&self, path: PathBuf) {
+    pub fn open_file_changes(&self, path: PathBuf, version: String) {
         let (right, _) = self.get_doc(path.clone(), None);
         let left = Doc::new_history(
             self.scope,
             DocContent::History(DocHistory {
                 path: path.clone(),
-                version: "head".to_string(),
+                version: version.clone(),
             }),
             self.editors,
             self.common.clone(),
@@ -713,9 +713,7 @@ impl MainSplitData {
                 }
             })
         };
-        self.common.proxy.get_buffer_head(path, move |result| {
-            send(result);
-        });
+        self.common.proxy.get_buffer_head(path, version, send);
 
         self.get_editor_tab_child(
             EditorTabChildSource::DiffEditor { left, right },

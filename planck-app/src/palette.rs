@@ -43,9 +43,11 @@ use crate::{
         CommandExecuted, CommandKind, InternalCommand, PlanckCommand, WindowCommand,
     },
     db::PlanckDb,
+    doc::DocContent,
     editor::{
         EditorData,
         location::{EditorLocation, EditorPosition},
+        view::blame_text,
     },
     keypress::{KeyPressData, KeyPressFocus, condition::Condition},
     lsp::path_from_url,
@@ -404,6 +406,9 @@ impl PaletteData {
             }
             PaletteKind::SCMReferences => {
                 self.get_scm_references();
+            }
+            PaletteKind::CompareRevision => {
+                self.get_compare_revisions();
             }
             PaletteKind::TerminalProfile => self.get_terminal_profiles(),
         }
@@ -954,6 +959,59 @@ impl PaletteData {
         self.items.set(items);
     }
 
+    /// Branches, tags and the commits that changed the active file, to compare it with.
+    fn get_compare_revisions(&self) {
+        let item = |rev: String, filter_text: String| PaletteItem {
+            content: PaletteItemContent::Revision { rev },
+            filter_text,
+            score: 0,
+            indices: Vec::new(),
+        };
+        let refs: im::Vector<PaletteItem> = self
+            .source_control
+            .branches
+            .get_untracked()
+            .into_iter()
+            .chain(self.source_control.tags.get_untracked())
+            .map(|name| item(name.clone(), name))
+            .collect();
+        self.items.set(refs.clone());
+
+        let Some(path) = self.active_file_path() else {
+            return;
+        };
+        let set_items = self.items.write_only();
+        let send = create_ext_action(self.common.scope, move |result| {
+            if let Ok(ProxyResponse::GitFileCommitsResponse { commits }) = result {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                let mut items = refs;
+                items.extend(commits.into_iter().map(|commit| {
+                    // 12 hex digits stay unambiguous in practice and read better than 40.
+                    let rev = commit.id.get(..12).unwrap_or(&commit.id).to_string();
+                    let text = format!(
+                        "{}  {}",
+                        &rev[..rev.len().min(7)],
+                        blame_text(Some(&commit), now)
+                    );
+                    item(rev, text)
+                }));
+                set_items.set(items);
+            }
+        });
+        self.common.proxy.git_file_commits(path, send);
+    }
+
+    /// The file of the active editor, also when it shows an older version of it.
+    fn active_file_path(&self) -> Option<PathBuf> {
+        let doc = self.main_split.active_editor.get_untracked()?.doc();
+        doc.content.with_untracked(|content| match content {
+            DocContent::History(history) => Some(history.path.clone()),
+            content => content.path().cloned(),
+        })
+    }
+
     fn get_terminal_profiles(&self) {
         let profiles = self.common.config.get().terminal.profiles.clone();
         let mut items: im::Vector<PaletteItem> = im::Vector::new();
@@ -1180,6 +1238,16 @@ impl PaletteData {
                         data: Some(serde_json::json!(name.to_owned())),
                     });
                 }
+                PaletteItemContent::Revision { rev } => {
+                    if let Some(path) = self.active_file_path() {
+                        self.common.internal_command.send(
+                            InternalCommand::OpenFileChanges {
+                                path,
+                                version: rev.clone(),
+                            },
+                        );
+                    }
+                }
                 PaletteItemContent::TerminalProfile { name: _, profile } => self
                     .common
                     .internal_command
@@ -1302,6 +1370,7 @@ impl PaletteData {
                         save: false,
                     }),
                 PaletteItemContent::SCMReference { .. } => {}
+                PaletteItemContent::Revision { .. } => {}
                 PaletteItemContent::TerminalProfile { .. } => {}
             }
         }

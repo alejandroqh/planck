@@ -304,6 +304,7 @@ fn file_diffs_view(source_control: SourceControlData) -> impl View {
         .on_click_stop(move |_| {
             internal_command.send(InternalCommand::OpenFileChanges {
                 path: path_for_click.clone(),
+                version: "head".to_string(),
             });
         })
         .on_event_cont(EventListener::PointerDown, move |event| {

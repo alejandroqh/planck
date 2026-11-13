@@ -1143,6 +1143,9 @@ impl WindowTabData {
             PaletteRun => {
                 self.palette.run(PaletteKind::Run);
             }
+            PaletteCompareRevision => {
+                self.palette.run(PaletteKind::CompareRevision);
+            }
             PaletteSCMReferences => {
                 self.palette.run(PaletteKind::SCMReferences);
             }
@@ -1650,8 +1653,8 @@ impl WindowTabData {
                     None,
                 );
             }
-            InternalCommand::OpenFileChanges { path } => {
-                self.main_split.open_file_changes(path);
+            InternalCommand::OpenFileChanges { path, version } => {
+                self.main_split.open_file_changes(path, version);
             }
             InternalCommand::ReloadFileExplorer => {
                 self.file_explorer.reload();

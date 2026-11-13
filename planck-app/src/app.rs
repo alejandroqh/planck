@@ -79,7 +79,7 @@ use crate::{
     },
     db::PlanckDb,
     editor::{
-        diff::diff_show_more_section_view,
+        diff::{diff_show_more_section_view, diff_take_change_view},
         location::{EditorLocation, EditorPosition},
         view::editor_container_view,
     },
@@ -1362,6 +1362,10 @@ fn editor_tab_content(
                             &diff_editor_data.left,
                             &diff_editor_data.right,
                         ),
+                        diff_take_change_view(
+                            &diff_editor_data.left,
+                            &diff_editor_data.right,
+                        ),
                     ))
                     .style(|s: Style| s.size_full())
                     .on_cleanup(move || {
@@ -2514,6 +2518,7 @@ fn palette_item(
         | PaletteItemContent::LineEnding { .. }
         | PaletteItemContent::ColorTheme { .. }
         | PaletteItemContent::SCMReference { .. }
+        | PaletteItemContent::Revision { .. }
         | PaletteItemContent::TerminalProfile { .. }
         | PaletteItemContent::IconTheme { .. } => {
             let text = item.filter_text;

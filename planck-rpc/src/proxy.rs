@@ -28,7 +28,7 @@ use crate::{
     file::{FileNodeItem, PathObject},
     file_line::FileLine,
     plugin::{LspServers, PluginId},
-    source_control::{BlameHunk, FileDiff},
+    source_control::{BlameHunk, CommitInfo, FileDiff},
     style::SemanticStyles,
     terminal::{TermId, TerminalProfile},
 };
@@ -69,8 +69,10 @@ pub enum ProxyRequest {
         buffer_id: BufferId,
         path: PathBuf,
     },
+    /// The file's content at `version`: "head" or any git revision, like a branch or commit.
     BufferHead {
         path: PathBuf,
+        version: String,
     },
     GlobalSearch {
         pattern: String,
@@ -104,6 +106,10 @@ pub enum ProxyRequest {
     },
     /// Blame of the open buffer's current content, uncommitted edits included.
     GitBlame {
+        path: PathBuf,
+    },
+    /// The newest commits that changed the file.
+    GitFileCommits {
         path: PathBuf,
     },
     GetReferences {
@@ -307,6 +313,9 @@ pub enum ProxyResponse {
     },
     GitBlameResponse {
         hunks: Vec<BlameHunk>,
+    },
+    GitFileCommitsResponse {
+        commits: Vec<CommitInfo>,
     },
     NewBufferResponse {
         content: String,
@@ -634,8 +643,13 @@ impl ProxyRpcHandler {
         self.request_async(ProxyRequest::NewBuffer { buffer_id, path }, f);
     }
 
-    pub fn get_buffer_head(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
-        self.request_async(ProxyRequest::BufferHead { path }, f);
+    pub fn get_buffer_head(
+        &self,
+        path: PathBuf,
+        version: String,
+        f: impl ProxyCallback + 'static,
+    ) {
+        self.request_async(ProxyRequest::BufferHead { path, version }, f);
     }
 
     pub fn create_file(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
@@ -988,6 +1002,10 @@ impl ProxyRpcHandler {
 
     pub fn git_blame(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
         self.request_async(ProxyRequest::GitBlame { path }, f);
+    }
+
+    pub fn git_file_commits(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
+        self.request_async(ProxyRequest::GitFileCommits { path }, f);
     }
 
     pub fn rename(

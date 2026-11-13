@@ -17,11 +17,12 @@ pub struct BlameHunk {
     pub start_line: usize,
     pub line_count: usize,
     /// None for uncommitted lines.
-    pub commit: Option<BlameCommit>,
+    pub commit: Option<CommitInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BlameCommit {
+pub struct CommitInfo {
+    pub id: String,
     /// "You" when the author is the repository's user.
     pub author: String,
     /// Author time in seconds since the Unix epoch.

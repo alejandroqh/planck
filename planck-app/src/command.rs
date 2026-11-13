@@ -392,6 +392,10 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "palette.scm_references")]
     PaletteSCMReferences,
 
+    #[strum(message = "Source Control: Compare File With Revision")]
+    #[strum(serialize = "palette.compare_revision")]
+    PaletteCompareRevision,
+
     #[strum(message = "List Palette Types")]
     #[strum(serialize = "palette.palette_help")]
     PaletteHelp,
@@ -615,8 +619,10 @@ pub enum InternalCommand {
         path: PathBuf,
     },
     MakeConfirmed,
+    /// Diff the file against `version`: "head" or a git revision.
     OpenFileChanges {
         path: PathBuf,
+        version: String,
     },
     ReloadFileExplorer,
     /// Test whether a file/directory can be created at that path
