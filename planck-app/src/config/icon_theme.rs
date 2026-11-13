@@ -37,11 +37,17 @@ impl IconThemeConfig {
     /// extension), and there is an icon associated with that file type, returns the path of the
     /// icon.
     pub fn resolve_path_to_icon(&self, paths: &[&Path]) -> Option<PathBuf> {
+        // Exact match first, then lowercase: imported VS Code themes use lowercase keys.
+        let get = |map: &IndexMap<String, String>, key: &str| {
+            map.get(key)
+                .or_else(|| map.get(&key.to_lowercase()))
+                .cloned()
+        };
         let file_names = paths
             .iter()
             .map(|path| path.file_name().and_then(OsStr::to_str));
         let file_name_icon = try_all_equal_value(file_names)
-            .and_then(|file_name| self.filename.get(file_name));
+            .and_then(|file_name| get(&self.filename, file_name));
 
         file_name_icon
             .or_else(|| {
@@ -50,7 +56,7 @@ impl IconThemeConfig {
                     .map(|path| path.extension().and_then(OsStr::to_str));
 
                 try_all_equal_value(extensions)
-                    .and_then(|extension| self.extension.get(extension))
+                    .and_then(|extension| get(&self.extension, extension))
             })
             .map(|icon| self.path.join(icon))
     }
@@ -238,6 +244,21 @@ mod tests {
             icon_theme_config.resolve_path_to_icon(
                 &["/dir1/Makefile.c", "../main.c"].map(AsRef::as_ref)
             )
+        );
+    }
+
+    #[test]
+    fn resolve_path_to_icon_falls_back_to_lowercase() {
+        let icon_theme_config = get_icon_theme_config();
+
+        assert_eq!(
+            Some("icons/python.svg".to_owned().into()),
+            icon_theme_config.resolve_path_to_icon(&["SETUP.PY"].map(AsRef::as_ref))
+        );
+        assert_eq!(
+            Some("icons/special.svg".to_owned().into()),
+            icon_theme_config
+                .resolve_path_to_icon(&["Special.RS"].map(AsRef::as_ref))
         );
     }
 }
