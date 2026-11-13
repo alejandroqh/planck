@@ -205,9 +205,7 @@ pub fn read_path_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
     file.read_to_end(&mut buffer)?;
 
     // Parse the file contents as utf8
-    let contents = String::from_utf8(buffer)?;
-
-    Ok(contents.to_string())
+    Ok(String::from_utf8(buffer)?)
 }
 
 pub fn language_id_from_path(path: &Path) -> Option<&'static str> {

@@ -89,15 +89,18 @@ pub fn new_proxy(
 
 impl CoreHandler for Proxy {
     fn handle_notification(&mut self, rpc: planck_rpc::core::CoreNotification) {
-        if let CoreNotification::UpdateTerminal { term_id, content } = &rpc {
-            if let Err(err) = self
-                .term_tx
-                .send((*term_id, TermEvent::UpdateContent(content.to_vec())))
-            {
-                tracing::error!("{:?}", err);
+        let rpc = match rpc {
+            CoreNotification::UpdateTerminal { term_id, content } => {
+                if let Err(err) = self
+                    .term_tx
+                    .send((term_id, TermEvent::UpdateContent(content)))
+                {
+                    tracing::error!("{:?}", err);
+                }
+                return;
             }
-            return;
-        }
+            rpc => rpc,
+        };
         if let Err(err) = self.tx.send(rpc) {
             tracing::error!("{:?}", err);
         }
