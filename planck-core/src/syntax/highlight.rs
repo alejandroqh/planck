@@ -12,7 +12,7 @@ use std::{
     collections::HashMap,
     path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -28,26 +28,31 @@ use tree_sitter::{
 use super::{PARSER, util::RopeProvider};
 use crate::{language::PlanckLanguage, style::SCOPES};
 
-thread_local! {
-    static HIGHLIGHT_CONFIGS: RefCell<HashMap<PlanckLanguage, Result<Arc<HighlightConfiguration>, HighlightIssue>>> = Default::default();
-}
+type HighlightConfigs =
+    HashMap<PlanckLanguage, Result<Arc<HighlightConfiguration>, HighlightIssue>>;
+
+/// Shared by all threads so each grammar is compiled once and a reset reaches every worker.
+static HIGHLIGHT_CONFIGS: Lazy<Mutex<HighlightConfigs>> =
+    Lazy::new(Default::default);
 
 pub fn reset_highlight_configs() {
-    HIGHLIGHT_CONFIGS.with_borrow_mut(|configs| {
-        configs.clear();
-    });
+    HIGHLIGHT_CONFIGS.lock().unwrap().clear();
 }
 
 pub(crate) fn get_highlight_config(
     lang: PlanckLanguage,
 ) -> Result<Arc<HighlightConfiguration>, HighlightIssue> {
-    HIGHLIGHT_CONFIGS.with(|configs| {
-        let mut configs = configs.borrow_mut();
-        let config = configs
-            .entry(lang)
-            .or_insert_with(|| lang.new_highlight_config().map(Arc::new));
-        config.clone()
-    })
+    if let Some(config) = HIGHLIGHT_CONFIGS.lock().unwrap().get(&lang) {
+        return config.clone();
+    }
+    // Compile without holding the lock; a concurrent duplicate compile is harmless.
+    let config = lang.new_highlight_config().map(Arc::new);
+    HIGHLIGHT_CONFIGS
+        .lock()
+        .unwrap()
+        .entry(lang)
+        .or_insert(config)
+        .clone()
 }
 
 /// Indicates which highlight should be applied to a region of source code.
