@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, atomic::AtomicU64},
-};
+use std::{rc::Rc, sync::Arc};
 
 use floem::{
     View,
@@ -412,10 +409,10 @@ fn progress_view(
     config: ReadSignal<Arc<PlanckConfig>>,
     progresses: RwSignal<IndexMap<ProgressToken, WorkProgress>>,
 ) -> impl View {
-    let id = AtomicU64::new(0);
     dyn_stack(
         move || progresses.get(),
-        move |_| id.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        // key on what is shown so unchanged items keep their view across updates
+        |(token, p)| (token.clone(), p.title.clone(), p.message.clone()),
         move |(_, p)| {
             let progress = match p.message {
                 Some(message) if !message.is_empty() => {
