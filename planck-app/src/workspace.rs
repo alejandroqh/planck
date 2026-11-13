@@ -114,6 +114,22 @@ pub fn read_space_folders(space: &Path) -> Result<Vec<SpaceFolder>> {
         .collect())
 }
 
+/// The space file's `[settings]` table as TOML text, in the same shape as a settings.toml.
+pub fn space_settings(space: &Path) -> Option<String> {
+    let parsed = std::fs::read_to_string(space)
+        .map_err(anyhow::Error::from)
+        .and_then(|s| Ok(toml::from_str::<toml::Value>(&s)?));
+    let mut value = match parsed {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::error!("failed to read settings from {space:?}: {err:?}");
+            return None;
+        }
+    };
+    let settings = value.as_table_mut()?.remove("settings")?;
+    toml::to_string(&settings).ok()
+}
+
 /// Appends `folder` to the space file, creating the file if needed. Keeps the
 /// rest of the file, comments included.
 pub fn add_space_folder(space: &Path, folder: &Path) -> Result<()> {

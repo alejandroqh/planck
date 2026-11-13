@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -80,6 +81,8 @@ struct SettingsItem {
     serde_value: Value,
     pos: RwSignal<Point>,
     size: RwSignal<Size>,
+    /// Where edits are saved: the open space file, or `None` for the user settings file.
+    save_to: RwSignal<Option<PathBuf>>,
     // this is only the header that give an visual separation between different type of settings
     header: bool,
 }
@@ -92,6 +95,7 @@ struct SettingsData {
     /// Font family settings (`kind.field`) whose "Mono fonts only" box was
     /// toggled away from its default.
     mono_toggled_fields: RwSignal<HashSet<String>>,
+    save_to: RwSignal<Option<PathBuf>>,
     common: Rc<CommonData>,
 }
 
@@ -147,6 +151,7 @@ impl SettingsData {
         let filtered_items = cx.create_rw_signal(im::Vector::new());
         let items = cx.create_rw_signal(im::Vector::new());
         let kinds = cx.create_rw_signal(im::Vector::new());
+        let save_to = cx.create_rw_signal(None);
         cx.create_effect(move |_| {
             let config = config.get();
 
@@ -190,6 +195,7 @@ impl SettingsData {
                     serde_value: Value::Null,
                     pos,
                     size: cx.create_rw_signal(Size::ZERO),
+                    save_to,
                     header: true,
                 });
                 data_kinds.push_back((kind.to_string(), pos));
@@ -227,6 +233,7 @@ impl SettingsData {
                         pos: cx.create_rw_signal(Point::ZERO),
                         size: cx.create_rw_signal(Size::ZERO),
                         serde_value,
+                        save_to,
                         header: false,
                     });
                     item_height_accum += 50.0;
@@ -244,6 +251,7 @@ impl SettingsData {
             items,
             kinds,
             mono_toggled_fields: cx.create_rw_signal(HashSet::new()),
+            save_to,
             common,
         }
     }
@@ -255,6 +263,9 @@ pub fn settings_view(editors: Editors, common: Rc<CommonData>) -> impl View {
     let cx = Scope::current();
     let settings_data = SettingsData::new(cx, common.clone());
     let view_settings_data = settings_data.clone();
+    let save_to = settings_data.save_to;
+    let space = common.workspace.space.clone();
+    let space_name = common.workspace.display().unwrap_or_default();
 
     let search_editor = editors.make_local(cx, common);
     let search_editor_id = search_editor.id();
@@ -354,6 +365,42 @@ pub fn settings_view(editors: Editors, common: Rc<CommonData>) -> impl View {
         })
     };
 
+    // Picks which file edits go to; only shown when a space is open.
+    let save_to_option = move |text: String, target: Option<PathBuf>| {
+        let selected = target.clone();
+        label(move || text.clone())
+            .on_click_stop(move |_| save_to.set(target.clone()))
+            .style(move |s| {
+                let config = config.get();
+                s.padding_horiz(10.0)
+                    .border_radius(6.0)
+                    .cursor(CursorStyle::Pointer)
+                    .apply_if(save_to.with(|t| *t == selected), |s| {
+                        s.background(
+                            config.color(PlanckColor::PANEL_CURRENT_BACKGROUND),
+                        )
+                    })
+                    .hover(|s| {
+                        s.background(
+                            config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                        )
+                    })
+            })
+    };
+    let has_space = space.is_some();
+    let save_to_switch = stack((
+        label(|| "Save changes to".to_string()).style(|s| s.margin_right(10.0)),
+        save_to_option("User".to_string(), None),
+        save_to_option(format!("Space: {space_name}"), space),
+    ))
+    .style(move |s| {
+        s.items_center()
+            .line_height(1.8)
+            .padding_horiz(50.0)
+            .padding_bottom(10.0)
+            .apply_if(!has_space, |s| s.hide())
+    });
+
     stack((
         container({
             scroll({
@@ -385,6 +432,7 @@ pub fn settings_view(editors: Editors, common: Rc<CommonData>) -> impl View {
                     .request_focus(|| {})
             })
             .style(|s| s.padding_horiz(50.0).padding_vert(20.0)),
+            save_to_switch,
             container({
                 scroll({
                     dyn_stack(
@@ -478,6 +526,7 @@ fn settings_item_view(
                 let kind = item.kind.clone();
                 let field = item.field.clone();
                 let item_value = item.value.clone();
+                let save_to = item.save_to;
                 create_effect(move |last| {
                     let doc = doc.get_untracked();
                     let rev = doc.buffer.with(|b| b.rev());
@@ -530,7 +579,12 @@ fn settings_item_view(
                             };
 
                             if let Some(value) = value {
-                                PlanckConfig::update_file(&kind, &field, value);
+                                PlanckConfig::update_file(
+                                    save_to.get_untracked().as_deref(),
+                                    &kind,
+                                    &field,
+                                    value,
+                                );
                             }
                         });
                     timer.set(token);
@@ -609,6 +663,7 @@ fn settings_item_view(
 
                 let kind = item.kind.clone();
                 let field = item.field.clone();
+                let save_to = item.save_to;
                 create_effect(move |last| {
                     let checked = checked.get();
                     if last.is_none() {
@@ -618,7 +673,12 @@ fn settings_item_view(
                         &checked,
                         toml_edit::ser::ValueSerializer::new(),
                     ) {
-                        PlanckConfig::update_file(&kind, &field, value);
+                        PlanckConfig::update_file(
+                            save_to.get_untracked().as_deref(),
+                            &kind,
+                            &field,
+                            value,
+                        );
                     }
                 });
 
@@ -817,6 +877,7 @@ fn color_section_list(
 
                                             if let Some(value) = value {
                                                 PlanckConfig::update_file(
+                                                    None,
                                                     &format!("color-theme.{kind}"),
                                                     &field,
                                                     value,
@@ -824,6 +885,7 @@ fn color_section_list(
                                             }
                                         } else {
                                             PlanckConfig::reset_setting(
+                                                None,
                                                 &format!("color-theme.{kind}"),
                                                 &field,
                                             );
@@ -878,6 +940,7 @@ fn color_section_list(
                         text("Reset")
                             .on_click_stop(move |_| {
                                 PlanckConfig::reset_setting(
+                                    None,
                                     &format!("color-theme.{local_kind}"),
                                     &local_key,
                                 );
@@ -1306,6 +1369,7 @@ fn dropdown_scroll(
 
     let kind = item.kind.clone();
     let field = item.field.clone();
+    let save_to = item.save_to;
     let view_fn = move |item_string: String| {
         let kind = kind.clone();
         let field = field.clone();
@@ -1322,7 +1386,12 @@ fn dropdown_scroll(
                     &value,
                     toml_edit::ser::ValueSerializer::new(),
                 ) {
-                    PlanckConfig::update_file(&kind, &field, value);
+                    PlanckConfig::update_file(
+                        save_to.get_untracked().as_deref(),
+                        &kind,
+                        &field,
+                        value,
+                    );
                 }
                 expanded.set(false);
             })

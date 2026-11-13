@@ -27,7 +27,7 @@ use self::{
     terminal::TerminalConfig,
     ui::UIConfig,
 };
-use crate::workspace::PlanckWorkspace;
+use crate::workspace::{PlanckWorkspace, space_settings};
 
 pub mod color;
 pub mod color_theme;
@@ -206,7 +206,19 @@ impl PlanckConfig {
                 .unwrap_or_else(|_| config.clone());
         }
 
-        if let Some(path) = workspace.path.as_ref() {
+        // A space's [settings] replace the per-folder .planck/settings.toml files.
+        if let Some(space) = workspace.space.as_ref() {
+            if let Some(settings) = space_settings(space) {
+                config = config::Config::builder()
+                    .add_source(config.clone())
+                    .add_source(config::File::from_str(
+                        &settings,
+                        config::FileFormat::Toml,
+                    ))
+                    .build()
+                    .unwrap_or_else(|_| config.clone());
+            }
+        } else if let Some(path) = workspace.path.as_ref() {
             let path = path.join("./.planck/settings.toml");
             config = config::Config::builder()
                 .add_source(config.clone())
@@ -894,40 +906,70 @@ impl PlanckConfig {
         }
     }
 
-    fn get_file_table() -> Option<toml_edit::Document> {
-        let path = Self::settings_file()?;
-        let content = std::fs::read_to_string(path).ok()?;
-        let document: toml_edit::Document = content.parse().ok()?;
-        Some(document)
-    }
-
-    pub fn reset_setting(parent: &str, key: &str) -> Option<()> {
-        let mut main_table = Self::get_file_table().unwrap_or_default();
+    /// Applies `edit` to the `parent` table of a settings file and saves it.
+    /// `space` picks the `[settings]` table of that space file, `None` the user settings file.
+    fn edit_settings_file(
+        space: Option<&Path>,
+        parent: &str,
+        edit: impl FnOnce(&mut toml_edit::Table),
+    ) -> Option<()> {
+        let path = match space {
+            Some(space) => space.to_path_buf(),
+            None => Self::settings_file()?,
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                error!("failed to read {path:?}: {e}");
+                return None;
+            }
+        };
+        // Never overwrite a file we could not parse, it would lose its contents.
+        let mut document: toml_edit::Document = match content.parse() {
+            Ok(document) => document,
+            Err(e) => {
+                error!("failed to parse {path:?}: {e}");
+                return None;
+            }
+        };
 
         // Find the container table
-        let mut table = main_table.as_table_mut();
-        for key in parent.split('.') {
-            if !table.contains_key(key) {
-                table.insert(
-                    key,
-                    toml_edit::Item::Table(toml_edit::Table::default()),
-                );
-            }
-            table = table.get_mut(key)?.as_table_mut()?;
+        let mut table = document.as_table_mut();
+        let keys = space
+            .map(|_| "settings")
+            .into_iter()
+            .chain(parent.split('.'));
+        for key in keys {
+            let mut new_table = toml_edit::Table::new();
+            // Only print a header for tables that end up holding values.
+            new_table.set_implicit(true);
+            table = table
+                .entry(key)
+                .or_insert(toml_edit::Item::Table(new_table))
+                .as_table_mut()?;
         }
 
-        table.remove(key);
+        edit(table);
 
-        // Store
-        let path = Self::settings_file()?;
-        std::fs::write(path, main_table.to_string().as_bytes()).ok()?;
-
-        Some(())
+        std::fs::write(path, document.to_string().as_bytes()).ok()
     }
 
-    /// Update the config file with the given edit.  
+    pub fn reset_setting(
+        space: Option<&Path>,
+        parent: &str,
+        key: &str,
+    ) -> Option<()> {
+        Self::edit_settings_file(space, parent, |table| {
+            table.remove(key);
+        })
+    }
+
+    /// Update the config file with the given edit.
     /// This should be called whenever the configuration is changed, so that it is persisted.
+    /// `space` saves into that space file's `[settings]`, `None` into the user settings file.
     pub fn update_file(
+        space: Option<&Path>,
         parent: &str,
         key: &str,
         value: toml_edit::Value,
@@ -942,34 +984,58 @@ impl PlanckConfig {
             (parent, key)
         };
 
-        let mut main_table = Self::get_file_table().unwrap_or_default();
-
-        // Find the container table
-        let mut table = main_table.as_table_mut();
-        for key in parent.split('.') {
-            if !table.contains_key(key) {
-                table.insert(
-                    key,
-                    toml_edit::Item::Table(toml_edit::Table::default()),
-                );
-            }
-            table = table.get_mut(key)?.as_table_mut()?;
-        }
-
-        // Update key
-        table.insert(key, toml_edit::Item::Value(value));
-
-        // Store
-        let path = Self::settings_file()?;
-        std::fs::write(path, main_table.to_string().as_bytes()).ok()?;
-
-        Some(())
+        Self::edit_settings_file(space, parent, |table| {
+            table.insert(key, toml_edit::Item::Value(value));
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn space_settings_override_user_settings() {
+        let dir = std::env::temp_dir()
+            .join(format!("planck-space-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let space = dir.join("my.planck-space");
+        std::fs::write(&space, "[[folders]]\npath = \".\"\n").unwrap();
+
+        PlanckConfig::update_file(
+            Some(&space),
+            "editor",
+            "tab-width",
+            toml_edit::Value::from(7),
+        )
+        .unwrap();
+        PlanckConfig::update_file(
+            Some(&space),
+            "editor",
+            "font-size",
+            toml_edit::Value::from(21),
+        )
+        .unwrap();
+        PlanckConfig::reset_setting(Some(&space), "editor", "font-size").unwrap();
+
+        let content = std::fs::read_to_string(&space).unwrap();
+        assert!(content.contains("[[folders]]"), "{content}");
+        assert!(
+            content.contains("[settings.editor]\ntab-width = 7"),
+            "{content}"
+        );
+        assert!(!content.contains("font-size"), "{content}");
+        assert!(!content.contains("[settings]\n"), "{content}");
+
+        let workspace = PlanckWorkspace::from_path(space).load_space();
+        let config: PlanckConfig =
+            PlanckConfig::merge_config(&workspace, None, None)
+                .try_deserialize()
+                .unwrap();
+        assert_eq!(config.editor.tab_width, 7);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn default_settings_include_language_servers() {

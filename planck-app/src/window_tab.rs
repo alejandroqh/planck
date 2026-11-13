@@ -33,6 +33,7 @@ use lsp_types::{
     CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
     ShowMessageParams,
 };
+use notify::Watcher;
 use planck_core::{
     command::FocusCommand, cursor::CursorAffinity, directory::Directory, meta,
     mode::Mode, register::Register,
@@ -59,7 +60,7 @@ use crate::{
         PlanckWorkbenchCommand, WindowCommand,
     },
     completion::{CompletionData, CompletionStatus},
-    config::PlanckConfig,
+    config::{PlanckConfig, watcher::ConfigWatcher},
     db::PlanckDb,
     doc::DocContent,
     editor::{
@@ -612,7 +613,36 @@ impl WindowTabData {
             });
         }
 
+        if let Some(space) = window_tab_data.workspace.space.clone() {
+            window_tab_data.watch_space_settings(cx, &space);
+        }
+
         window_tab_data
+    }
+
+    /// Reloads the config when the space file changes. The watcher lives in the
+    /// effect, so it stops when this window tab's scope is disposed.
+    fn watch_space_settings(&self, cx: Scope, space: &Path) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(ConfigWatcher::new(tx)) {
+            Ok(watcher) => watcher,
+            Err(err) => {
+                tracing::error!("{:?}", err);
+                return;
+            }
+        };
+        if let Err(err) = watcher.watch(space, notify::RecursiveMode::NonRecursive) {
+            tracing::error!("{:?}", err);
+            return;
+        }
+        let changed = create_signal_from_channel(rx);
+        let window_tab_data = self.clone();
+        cx.create_effect(move |_| {
+            let _watcher = &watcher;
+            if changed.get().is_some() {
+                window_tab_data.reload_config();
+            }
+        });
     }
 
     pub fn reload_config(&self) {
@@ -1149,6 +1179,7 @@ impl WindowTabData {
                 self.common.window_common.window_scale.set(scale);
 
                 PlanckConfig::update_file(
+                    None,
                     "ui",
                     "scale",
                     toml_edit::Value::from(scale),
@@ -1164,6 +1195,7 @@ impl WindowTabData {
                 self.common.window_common.window_scale.set(scale);
 
                 PlanckConfig::update_file(
+                    None,
                     "ui",
                     "scale",
                     toml_edit::Value::from(scale),
@@ -1173,6 +1205,7 @@ impl WindowTabData {
                 self.common.window_common.window_scale.set(1.0);
 
                 PlanckConfig::update_file(
+                    None,
                     "ui",
                     "scale",
                     toml_edit::Value::from(1.0),
@@ -1896,6 +1929,7 @@ impl WindowTabData {
                 if save {
                     // The config file is watched
                     PlanckConfig::update_file(
+                        None,
                         "core",
                         "color-theme",
                         toml_edit::Value::from(name),
@@ -1911,6 +1945,7 @@ impl WindowTabData {
                 if save {
                     // The config file is watched
                     PlanckConfig::update_file(
+                        None,
                         "core",
                         "icon-theme",
                         toml_edit::Value::from(name),
@@ -1924,6 +1959,7 @@ impl WindowTabData {
             }
             InternalCommand::SetModal { modal } => {
                 PlanckConfig::update_file(
+                    None,
                     "core",
                     "modal",
                     toml_edit::Value::from(modal),
