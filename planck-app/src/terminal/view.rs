@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{cell::RefCell, collections::HashMap, sync::Arc, time::SystemTime};
 
 use alacritty_terminal::{
     grid::Dimensions,
@@ -53,7 +53,7 @@ struct TerminalLineContent<'a> {
     y: f64,
     bg: Vec<(usize, usize, Color)>,
     underline: Vec<(usize, usize, Color, f64)>,
-    chars: Vec<(char, Attrs<'a>, f64, f64)>,
+    chars: Vec<(char, bool, Color, Attrs<'a>, f64, f64)>,
     cursor: Option<(char, f64)>,
 }
 
@@ -73,6 +73,8 @@ pub struct TerminalView {
     hyper_regs: Vec<Regex>,
     previous_mouse_action: MouseAction,
     current_mouse_action: MouseAction,
+    /// Shaped glyphs keyed by (char, bold, fg rgba), cleared on config change.
+    glyph_cache: RefCell<HashMap<(char, bool, u32), TextLayout>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -144,6 +146,7 @@ pub fn terminal_view(
         hyper_regs: vec![reg],
         previous_mouse_action: Default::default(),
         current_mouse_action: Default::default(),
+        glyph_cache: Default::default(),
     }
 }
 
@@ -417,7 +420,9 @@ impl TerminalView {
                 if bold {
                     attrs = attrs.weight(Weight::BOLD);
                 }
-                line_content.chars.push((cell.c, attrs, x, char_y));
+                line_content
+                    .chars
+                    .push((cell.c, bold, fg, attrs, x, char_y));
             }
         }
         self.paint_line_content(cx, &line_content, line_height, char_width, config);
@@ -473,14 +478,24 @@ impl TerminalView {
             }
         }
 
-        for (char, attr, x, y) in &line_content.chars {
-            let mut text_layout = TextLayout::new();
-            text_layout.set_text(
-                &char.to_string(),
-                AttrsList::new(attr.clone()),
-                None,
-            );
-            cx.draw_text(&text_layout, Point::new(*x, *y));
+        let mut cache = self.glyph_cache.borrow_mut();
+        // shortcut: unbounded growth is capped by a full clear, fine for terminal palettes
+        if cache.len() > 8192 {
+            cache.clear();
+        }
+        for (char, bold, fg, attr, x, y) in &line_content.chars {
+            let text_layout = cache
+                .entry((*char, *bold, fg.to_rgba8().to_u32()))
+                .or_insert_with(|| {
+                    let mut text_layout = TextLayout::new();
+                    text_layout.set_text(
+                        &char.to_string(),
+                        AttrsList::new(attr.clone()),
+                        None,
+                    );
+                    text_layout
+                });
+            cx.draw_text(text_layout, Point::new(*x, *y));
         }
     }
 }
@@ -586,7 +601,9 @@ impl View for TerminalView {
     ) {
         if let Ok(state) = state.downcast() {
             match *state {
-                TerminalViewState::Config => {}
+                TerminalViewState::Config => {
+                    self.glyph_cache.borrow_mut().clear();
+                }
                 TerminalViewState::Focus(is_focused) => {
                     self.is_focused = is_focused;
                 }
