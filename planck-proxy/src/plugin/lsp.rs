@@ -207,9 +207,10 @@ impl LspClient {
                 }
                 if let Ok(msg) = serde_json::to_string(&msg) {
                     tracing::debug!("write to lsp: {}", msg);
-                    let msg =
-                        format!("Content-Length: {}\r\n\r\n{}", msg.len(), msg);
-                    if let Err(err) = writer.write(msg.as_bytes()) {
+                    if let Err(err) =
+                        write!(writer, "Content-Length: {}\r\n\r\n", msg.len())
+                            .and_then(|_| writer.write_all(msg.as_bytes()))
+                    {
                         tracing::error!("{:?}", err);
                     }
                     if let Err(err) = writer.flush() {
