@@ -376,7 +376,12 @@ impl ProxyHandler for Dispatcher {
                                         ignore::Walk::new(p).flatten()
                                     }),
                                 )
-                                .map(|p| p.into_path()),
+                                .map(|p| p.into_path())
+                                // Open files inside the workspace come up twice; search them once.
+                                .filter({
+                                    let mut seen = HashSet::new();
+                                    move |p| seen.insert(p.clone())
+                                }),
                             &pattern,
                             case_sensitive,
                             whole_word,
