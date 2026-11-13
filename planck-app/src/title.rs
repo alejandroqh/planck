@@ -28,6 +28,7 @@ fn left(
     workbench_command: Listener<PlanckWorkbenchCommand>,
     config: ReadSignal<Arc<PlanckConfig>>,
     num_window_tabs: Memo<usize>,
+    in_space: bool,
 ) -> impl View {
     let is_macos = cfg!(target_os = "macos");
     stack((
@@ -54,7 +55,9 @@ fn left(
             || "Menu",
             config,
         )
-        .popout_menu(move || window_menu(planck_command, workbench_command))
+        .popout_menu(move || {
+            window_menu(planck_command, workbench_command, in_space)
+        })
         .style(move |s| {
             s.margin_left(4.0)
                 .margin_right(6.0)
@@ -345,8 +348,15 @@ pub fn title(window_tab_data: Rc<WindowTabData>) -> impl View {
     let title_height = window_tab_data.title_height;
     let update_in_progress = window_tab_data.update_in_progress;
     let config = window_tab_data.common.config;
+    let in_space = workspace.space.is_some();
     stack((
-        left(planck_command, workbench_command, config, num_window_tabs),
+        left(
+            planck_command,
+            workbench_command,
+            config,
+            num_window_tabs,
+            in_space,
+        ),
         middle(
             workspace,
             window_tab_data.main_split.clone(),

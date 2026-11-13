@@ -3635,7 +3635,8 @@ fn window(window_data: WindowData) -> impl View {
             window_tab.common.keypress.track();
             let workbench_command = window_tab.common.workbench_command;
             let planck_command = window_tab.common.planck_command;
-            window_menu(planck_command, workbench_command)
+            let in_space = window_tab.workspace.space.is_some();
+            window_menu(planck_command, workbench_command, in_space)
         } else {
             Menu::new("Planck")
         }
@@ -4096,6 +4097,7 @@ fn listen_local_socket(tx: SyncSender<CoreNotification>) -> Result<()> {
 pub fn window_menu(
     planck_command: Listener<PlanckCommand>,
     workbench_command: Listener<PlanckWorkbenchCommand>,
+    in_space: bool,
 ) -> Menu {
     Menu::new("Planck")
         .entry({
@@ -4144,6 +4146,12 @@ pub fn window_menu(
                 .entry(MenuItem::new("Open Folder").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::OpenFolder);
                 }))
+                .entry(MenuItem::new("Open Space").action(move || {
+                    workbench_command.send(PlanckWorkbenchCommand::OpenSpace);
+                }))
+                .entry(MenuItem::new("Add Folder to Space").action(move || {
+                    workbench_command.send(PlanckWorkbenchCommand::AddFolderToSpace);
+                }))
                 .separator()
                 .entry(MenuItem::new("Save").action(move || {
                     planck_command.send(PlanckCommand {
@@ -4155,9 +4163,17 @@ pub fn window_menu(
                     workbench_command.send(PlanckWorkbenchCommand::SaveAll);
                 }))
                 .separator()
-                .entry(MenuItem::new("Close Folder").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::CloseFolder);
-                }))
+                // Closing the workspace closes the whole space when one is open.
+                .entry(
+                    MenuItem::new(if in_space {
+                        "Close Space"
+                    } else {
+                        "Close Folder"
+                    })
+                    .action(move || {
+                        workbench_command.send(PlanckWorkbenchCommand::CloseFolder);
+                    }),
+                )
                 .entry(MenuItem::new("Close Window").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::CloseWindow);
                 })),
