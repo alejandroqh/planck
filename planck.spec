@@ -1,7 +1,7 @@
 Name:           planck-git
 Version:        1.0.1.{{{ git_dir_version }}}
 Release:        1
-Summary:        Fast, focused code editor written in Rust
+Summary:        Fast, focused code editor
 License:        Apache-2.0
 URL:            https://github.com/alejandroqh/planck
 

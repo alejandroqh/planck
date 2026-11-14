@@ -3,7 +3,7 @@ Version=1.0
 Type=Application
 
 Name=Planck
-Comment=Lightning-fast and powerful code editor written in Rust
+Comment=Fast, focused code editor
 Categories=Development;IDE;
 GenericName=Code Editor
 StartupWMClass=planck
