@@ -1,5 +1,18 @@
 # Changelog
 
+## Planck 1.0.2 (2026-11-15)
+
+### Bug Fixes
+- Fix a new Untitled file replacing a restored Untitled file and losing its text; a preview tab with unsaved text is never reused
+- Say "Open Recent" instead of Lapce's "Open Recent Workspace"
+
+### Features
+- Double click the empty part of the tab bar to create a new file
+
+### Changes
+- Linux packages install a scalable icon in the hicolor theme, sized like other app icons
+- Shorter tagline "Fast, focused code editor" in the desktop entry, metainfo and package summary
+
 ## Planck 1.0.1 (2026-11-14)
 
 ### Bug Fixes
