@@ -46,9 +46,11 @@ jobs:
         with:
           tool: cargo-deb,cargo-generate-rpm
 
+      # No in-app updater on Linux: dnf and apt update the packages.
       - name: Build
         run: |
-          cargo build --locked --profile release-lto
+          cargo build --locked --profile release-lto --package planck-app \
+            --no-default-features --features vendored-fonts
           strip target/release-lto/planck
 
       - name: Package deb and rpm

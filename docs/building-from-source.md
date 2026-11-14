@@ -43,7 +43,7 @@ Release packages are built by `.github/workflows/release.yml`: a `.deb` and an `
 
 ```bash
 cargo install cargo-deb cargo-generate-rpm
-cargo build --profile release-lto
+cargo build --profile release-lto --package planck-app --no-default-features --features vendored-fonts
 cargo deb --no-build --output dist/
 cargo generate-rpm --output dist/
 ```
