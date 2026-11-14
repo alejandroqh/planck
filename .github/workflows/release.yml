@@ -102,11 +102,15 @@ jobs:
 
       - name: Publish release
         run: |
+          assets=(planck-linux-*/* planck-macos/*)
           prerelease=
           if [ "$RELEASE_TAG_NAME" = nightly ]; then
             prerelease=--prerelease
             gh release delete nightly --yes --cleanup-tag || true
+          elif gh release view "$RELEASE_TAG_NAME" >/dev/null 2>&1; then
+            # A release made by hand keeps its notes; only the files are added.
+            gh release upload "$RELEASE_TAG_NAME" --clobber "${assets[@]}"
+            exit 0
           fi
           gh release create "$RELEASE_TAG_NAME" $prerelease \
-            --title "$RELEASE_TAG_NAME" --target "$GITHUB_SHA" \
-            planck-linux-*/* planck-macos/*
+            --title "$RELEASE_TAG_NAME" --target "$GITHUB_SHA" "${assets[@]}"
