@@ -1,13 +1,37 @@
 # Changelog
 
-## Planck 1.0.0 (unreleased)
+## Planck 1.0.0 (2026-11-14)
 
-Planck is forked from Lapce 0.4.6.
+First release. Planck is forked from Lapce 0.4.6.
 
 ### Changes
 - Renamed Lapce to Planck: crates (`planck-app`, `planck-core`, `planck-proxy`, `planck-rpc`), binaries (`planck`, `planck-proxy`), app ID `io.github.alejandroqh.planck`
 - Planck uses its own config directory and does not read Lapce settings
 - Theme color keys renamed from `lapce.*` to `planck.*`
+- Removed the WASI plugin system, remote development (SSH/WSL) and the debugger (DAP)
+- Language servers are configured directly with `[lsp.<name>]` tables in `settings.toml`, with defaults for rust-analyzer, clangd, gopls, pyright and typescript-language-server
+- Sublime-style sessions: without a folder Planck opens a files-only window, Untitled files are kept across launches without saving, and the last files, folder or space are restored at launch
+- Autosave is on by default (`editor.autosave-interval = 1000`)
+- Horizontal menu bar (File, Edit, View, Preferences, Help) and a New File button in the top bar
+- Files-only windows start with the side and bottom panels hidden
+
+### Features
+- Spaces: `.planck-space` files open several folders in one window, with their own settings
+- Minimap
+- Git blame of the cursor's line at its end, with a Toggle Line Blame command
+- Compare a file with any commit, branch or tag, and take changed blocks from the comparison
+- Import font based VS Code file icon themes (such as Monokai Pro)
+- Font family dropdown in Settings, with a monospace filter
+- New app icon
+
+### Bug Fixes and Performance
+- Fix LSP messages being truncated and a deadlock while a language server initializes
+- Fix global search listing a file twice when it is open
+- Fix the line count showing over line 1 in the gutter
+- Faster terminal rendering, sticky headers, semantic tokens and inlay hints, and fewer copies of file text in memory
+
+### Packaging
+- Releases ship `.deb` and `.rpm` for amd64 and arm64, and a `.dmg` for Apple Silicon Macs
 
 ---
 
