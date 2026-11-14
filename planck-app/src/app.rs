@@ -1097,6 +1097,11 @@ fn editor_tab_header(
                     .size_full()
             }),
         )
+        // Tabs stop their own double clicks, so this only fires on the empty part of the bar.
+        .on_double_click_stop(move |_| {
+            set_active_editor_tab.set(Some(editor_tab_id));
+            workbench_command.send(PlanckWorkbenchCommand::NewFile);
+        })
         .style(|s| {
             s.height_full()
                 .flex_grow(1.0f32)
