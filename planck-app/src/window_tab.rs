@@ -517,11 +517,17 @@ impl WindowTabData {
                     common.clone(),
                 )
             });
-        // Files-only sessions start with the whole left bar hidden; the status
-        // bar button brings it back.
+        // Files-only sessions start with the left bar and the bottom panel
+        // hidden; the status bar buttons bring them back.
         if workspace.is_files_only() {
-            panel.set_shown(&PanelPosition::LeftTop, false);
-            panel.set_shown(&PanelPosition::LeftBottom, false);
+            for position in [
+                PanelPosition::LeftTop,
+                PanelPosition::LeftBottom,
+                PanelPosition::BottomLeft,
+                PanelPosition::BottomRight,
+            ] {
+                panel.set_shown(&position, false);
+            }
         }
 
         let terminal = TerminalPanelData::new(
