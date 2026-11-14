@@ -32,7 +32,6 @@ fn left(
     num_window_tabs: Memo<usize>,
 ) -> impl View {
     let latest_release = data.common.window_common.latest_release;
-    // macOS shows these menus in its own menu bar.
     let menus = MENU_BAR.map(|name| {
         let data = data.clone();
         label(move || {
@@ -58,7 +57,6 @@ fn left(
                         config.color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
                     )
                 })
-                .apply_if(cfg!(target_os = "macos"), |s| s.hide())
         })
     });
     let is_macos = cfg!(target_os = "macos");
