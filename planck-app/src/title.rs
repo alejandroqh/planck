@@ -145,7 +145,7 @@ fn middle(
             || PlanckIcons::PALETTE_MENU,
             || false,
             || false,
-            || "Open Folder / Recent Workspace",
+            || "Open Folder, Space or Recent",
             config,
         )
         .popout_menu(move || {
@@ -156,7 +156,7 @@ fn middle(
                 .entry(MenuItem::new("Open Space").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::OpenSpace);
                 }))
-                .entry(MenuItem::new("Open Recent Workspace").action(move || {
+                .entry(MenuItem::new("Open Recent").action(move || {
                     workbench_command.send(PlanckWorkbenchCommand::PaletteWorkspace);
                 }))
         })

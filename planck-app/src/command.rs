@@ -380,7 +380,7 @@ pub enum PlanckWorkbenchCommand {
     #[strum(serialize = "palette.command")]
     PaletteCommand,
 
-    #[strum(message = "Open Recent Workspace")]
+    #[strum(message = "Open Recent Folder or Space")]
     #[strum(serialize = "palette.workspace")]
     PaletteWorkspace,
 
