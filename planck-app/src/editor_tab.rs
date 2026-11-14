@@ -415,7 +415,9 @@ impl EditorTabData {
                 EditorTabChild::Editor(editor_id) => {
                     if let Some(editor) = editors.editor_untracked(*editor_id) {
                         let confirmed = editor.confirmed.get_untracked();
-                        if !confirmed {
+                        // Reusing a preview tab drops its document, so keep any with
+                        // unsaved text (Untitled files are never confirmed by typing).
+                        if !confirmed && editor.doc().is_pristine() {
                             return Some((i, child.clone()));
                         }
                     }
