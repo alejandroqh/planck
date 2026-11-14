@@ -1,6 +1,8 @@
 # https://github.com/crate-ci/typos/blob/02ea592e44b3a53c302f697cddca7641cd051c3d/docs/reference.md
 
 [files]
+# Vendored upstream code
+extend-exclude = ["libs/"]
 
 [default]
 extend-ignore-re = [

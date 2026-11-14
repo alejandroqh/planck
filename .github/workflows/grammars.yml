@@ -1,0 +1,39 @@
+name: Mirror grammars
+
+# Copies a release of lapce/tree-sitter-grammars (compiled tree-sitter grammars
+# and highlight queries) into a release of this repository, which Planck
+# downloads at launch. Keep GRAMMARS_RELEASE in planck-app/src/app/grammars.rs
+# in sync with the tag this creates. The release is a prerelease so the macOS
+# updater, which follows the latest release, never picks it.
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "lapce/tree-sitter-grammars release to copy"
+        required: true
+        default: v0.4.5+1f9f9dd
+  push:
+    branches: [master]
+    paths: [.github/workflows/grammars.yml]
+
+permissions: {}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag || 'v0.4.5+1f9f9dd' }}
+    steps:
+      - name: Copy the release
+        run: |
+          tag="grammars-${UPSTREAM_TAG%%+*}"
+          gh release download "$UPSTREAM_TAG" --repo lapce/tree-sitter-grammars --dir assets
+          gh release delete "$tag" --yes --cleanup-tag || true
+          gh release create "$tag" --prerelease --title "Grammars ${UPSTREAM_TAG%%+*}" \
+            --target "$GITHUB_SHA" \
+            --notes "Tree-sitter grammars and highlight queries copied from lapce/tree-sitter-grammars $UPSTREAM_TAG. Planck downloads these for syntax highlighting." \
+            assets/*

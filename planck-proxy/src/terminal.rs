@@ -375,8 +375,9 @@ impl State {
 
 #[cfg(target_os = "macos")]
 fn set_locale_environment() {
-    let locale = locale_config::Locale::global_default()
-        .to_string()
+    // Apps started from Finder get no LANG, so take it from the system settings.
+    let locale = sys_locale::get_locale()
+        .unwrap_or_else(|| "en-US".to_string())
         .replace('-', "_");
     unsafe {
         std::env::set_var("LC_ALL", locale + ".UTF-8");

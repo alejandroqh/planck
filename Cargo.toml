@@ -36,6 +36,8 @@ path = "planck-app/src/bin/planck.rs"
 
 [workspace]
 members = ["planck-app", "planck-proxy", "planck-rpc", "planck-core"]
+# Vendored libraries keep their own manifests and are not linted or formatted with Planck.
+exclude = ["libs"]
 
 [workspace.package]
 version      = "1.0.0"
@@ -67,7 +69,6 @@ parking_lot       = { version = "0.12.3" }
 rayon             = { version = "1.10.0" }
 regex             = { version = "1.10.5" }
 remain            = { version = "0.2" }
-semver            = { version = "1.0" }
 reqwest           = { version = "0.11", features = ["blocking", "json", "socks"] }
 serde             = { version = "1.0" }
 serde_json        = { version = "1.0" }
@@ -91,20 +92,16 @@ planck-rpc   = { path = "./planck-rpc" }
 planck-proxy = { path = "./planck-proxy" }
 
 [workspace.dependencies.floem]
-# path = "../floem"
-git = "https://github.com/lapce/floem"
-rev = "31fa8f444c37f4c314f47d88c23ffdbc25f2ab53"
+path = "./libs/floem"
 features = ["editor", "serde", "default-image-formats", "rfd-async-std"]
 
 [workspace.dependencies.floem-editor-core]
-# path = "../floem/editor-core/"
-git = "https://github.com/lapce/floem"
-rev = "31fa8f444c37f4c314f47d88c23ffdbc25f2ab53"
+path = "./libs/floem/editor-core"
 features = ["serde"]
 
 [patch.crates-io]
-# Temporarily patch lsp-types with a version that adds message-type debug
-lsp-types = { git = "https://github.com/lapce/lsp-types", rev = "feaa1e2ec80975c9dadd400a238ceacf071058e6" }
+# lsp-types with message-type debug, kept in libs/
+lsp-types = { path = "./libs/lsp-types" }
 
 # cargo vendor issue: https://github.com/rust-lang/cargo/issues/10310
 # dpi comes from winit (source) and muda (crate)

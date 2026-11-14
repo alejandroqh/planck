@@ -9,11 +9,9 @@ use planck_core::directory::Directory;
 
 use crate::{tracing::*, update::ReleaseInfo};
 
-/// Release of github.com/lapce/tree-sitter-grammars that stable builds use.
-/// The grammars are versioned with Lapce, not Planck, so this is pinned
-/// separately from Planck's own version. Debug and nightly builds always take
-/// the newest release.
-const GRAMMARS_VERSION: &str = "0.4.5";
+/// Planck's copy of a github.com/lapce/tree-sitter-grammars release, made by
+/// .github/workflows/grammars.yml so Planck only downloads from its own repo.
+const GRAMMARS_RELEASE: &str = "grammars-v0.4.5";
 
 fn get_github_api(url: &str) -> Result<String> {
     let user_agent = format!("Planck/{}", planck_core::meta::VERSION);
@@ -26,45 +24,12 @@ fn get_github_api(url: &str) -> Result<String> {
 }
 
 pub fn find_grammar_release() -> Result<ReleaseInfo> {
-    let releases: Vec<ReleaseInfo> = serde_json::from_str(&get_github_api(
-        "https://api.github.com/repos/lapce/tree-sitter-grammars/releases?per_page=100",
-    ).context("Failed to retrieve releases for tree-sitter-grammars")?)?;
-
-    use planck_core::meta::{RELEASE, ReleaseType};
-
-    let releases = releases
-        .into_iter()
-        .filter_map(|f| {
-            if matches!(RELEASE, ReleaseType::Debug | ReleaseType::Nightly) {
-                return Some(f);
-            }
-
-            let tag_name = if f.tag_name.starts_with('v') {
-                f.tag_name.trim_start_matches('v')
-            } else {
-                f.tag_name.as_str()
-            };
-
-            use std::cmp::Ordering;
-
-            use semver::Version;
-
-            let sv = Version::parse(tag_name).ok()?;
-            let version = Version::parse(GRAMMARS_VERSION).ok()?;
-
-            if matches!(sv.cmp_precedence(&version), Ordering::Equal) {
-                Some(f)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let Some(release) = releases.first() else {
-        return Err(anyhow!("Couldn't find any release"));
-    };
-
-    Ok(release.to_owned())
+    let url = format!(
+        "https://api.github.com/repos/alejandroqh/planck/releases/tags/{GRAMMARS_RELEASE}"
+    );
+    let release = get_github_api(&url)
+        .context("Failed to retrieve the tree-sitter grammars release")?;
+    Ok(serde_json::from_str(&release)?)
 }
 
 pub fn fetch_grammars(release: &ReleaseInfo) -> Result<bool> {
