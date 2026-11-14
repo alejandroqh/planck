@@ -63,6 +63,15 @@ fn left(
                 .margin_right(6.0)
                 .apply_if(is_macos, |s| s.hide())
         }),
+        clickable_icon(
+            || PlanckIcons::ADD,
+            move || workbench_command.send(PlanckWorkbenchCommand::NewFile),
+            || false,
+            || false,
+            || "New File",
+            config,
+        )
+        .style(|s| s.margin_right(6.0)),
         drag_window_area(empty())
             .style(|s| s.height_pct(100.0).flex_basis(0.0).flex_grow(1.0f32)),
     ))
