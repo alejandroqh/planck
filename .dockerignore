@@ -1,9 +1,0 @@
-.github
-.vscode
-.planck
-docs
-extra/linux/docker
-extra/macos
-extra/windows
-target
-planck.spec

@@ -37,14 +37,14 @@ cargo install --path . --bin planck --profile release-lto --locked
 
 Once Planck is compiled, the executable will be available in `$HOME/.cargo/bin/planck` and should be available in `PATH` automatically.
 
-## Building using Docker or Podman
+## Building release packages
 
-Packages available in releases are built using containers based on multi-stage Dockerfiles. To easily orchestrate builds, there is a `docker-bake.hcl` manifest in root of repository that defines all stages and targets.
-If you want to build all packages for ubuntu, you can run `RELEASE_TAG_NAME=nightly docker buildx bake ubuntu` (`RELEASE_TAG_NAME` is a required environment variable used to tell what kind of release is being built as well as baking in the version itself).
-To scope in to specific distribution version, you can define target with it's version counterpart from matrix, e.g. to build only Ubuntu Focal package, you can run `RELEASE_TAG_NAME=nightly docker buildx bake ubuntu-focal`.
-Additionally to building multiple OS versions at the same time, Docker-based builds will also try to cross-compile Planck for other architectures.
-This does not require QEMU installed as it's done via true cross-compilation meaning `HOST` will run your native OS/CPU architecture and `TARGET` will be the wanted architecture, instead of spawning container that's running OS using `TARGET` architecture.
+Release packages are built by `.github/workflows/release.yml`: a `.deb` and an `.rpm` for amd64 and arm64 on native GitHub runners, and an arm64 `.dmg` on macOS. To build the Linux packages locally:
 
-> ![WARNING]
-> Do not run plain targets like `ubuntu` or `fedora` if you don't have very powerful machine, as it will spawn many concurrent jobs
-> which will take a long time to build.
+```bash
+cargo install cargo-deb cargo-generate-rpm
+cargo build --profile release-lto
+cargo deb --no-build --output dist/
+cargo generate-rpm --output dist/
+```
+

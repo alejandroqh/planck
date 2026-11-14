@@ -48,7 +48,7 @@ disabled = true
 
 ## Installation
 
-Pre-built releases for Windows, Linux and macOS are published on the [releases page](https://github.com/alejandroqh/planck/releases). To compile from source, follow the [guide](docs/building-from-source.md).
+Pre-built packages for Linux (`.deb` and `.rpm`, amd64 and arm64) and macOS (Apple Silicon `.dmg`) are published on the [releases page](https://github.com/alejandroqh/planck/releases). To compile from source, follow the [guide](docs/building-from-source.md).
 
 ## Contributing
 
