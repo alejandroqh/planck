@@ -15,3 +15,5 @@ extend-ignore-re = [
 [default.extend-identifiers]
 
 [default.extend-words]
+# Clojure file extension
+edn = "edn"
