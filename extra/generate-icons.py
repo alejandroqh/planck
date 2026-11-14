@@ -41,8 +41,14 @@ def variant(box, size, mark_only=False):
         for child in list(root):
             if child.get("id") != "mark":
                 root.remove(child)
-        # currentColor falls back to black; the app tints the logo itself.
-        root.find(f"{{{SVG_NS}}}g[@id='mark']").attrib.pop("color")
+        # The app tints the logo itself, so gradients become currentColor
+        # (which falls back to black).
+        mark = root.find(f"{{{SVG_NS}}}g[@id='mark']")
+        mark.attrib.pop("color", None)
+        for el in mark.iter():
+            for key, value in el.attrib.items():
+                if value.startswith("url("):
+                    el.set(key, "currentColor")
     return ET.tostring(root, encoding="unicode") + "\n"
 
 
