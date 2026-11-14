@@ -2,9 +2,10 @@ name: Mirror grammars
 
 # Copies a release of lapce/tree-sitter-grammars (compiled tree-sitter grammars
 # and highlight queries) into a release of this repository, which Planck
-# downloads at launch. Keep GRAMMARS_RELEASE in planck-app/src/app/grammars.rs
-# in sync with the tag this creates. The release is a prerelease so the macOS
-# updater, which follows the latest release, never picks it.
+# downloads at launch, and adds the Linux arm64 grammars that upstream does not
+# ship. Keep GRAMMARS_RELEASE in planck-app/src/app/grammars.rs in sync with the
+# tag this creates. The release is a prerelease so the macOS updater, which
+# follows the latest release, never picks it.
 on:
   workflow_dispatch:
     inputs:
@@ -18,16 +19,63 @@ on:
 
 permissions: {}
 
+env:
+  UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag || 'v0.4.5+1f9f9dd' }}
+
 jobs:
+  linux-arm64:
+    # Built with upstream's own builder at the release's commit, so the grammar
+    # set and versions match the other platforms.
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: lapce/tree-sitter-grammars
+          ref: ${{ env.UPSTREAM_TAG }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install clang zstd
+          rustup update --no-self-update
+          cargo install tree-sitter-cli@^0.22 --locked
+
+      - name: Build grammars
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          mkdir output tmp
+          cargo run --release -- --output ./output --tmp ./tmp
+          ls output | wc -l
+
+      - name: Create tarball
+        run: |
+          tar -C output -cf linux-aarch64.tar .
+          zstd linux-aarch64.tar -o grammars-linux-aarch64.tar.zst
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: grammars-linux-aarch64
+          path: grammars-linux-aarch64.tar.zst
+          retention-days: 1
+
   mirror:
+    needs: linux-arm64
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag || 'v0.4.5+1f9f9dd' }}
     steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: grammars-linux-aarch64
+          path: assets
+
       - name: Copy the release
         run: |
           tag="grammars-${UPSTREAM_TAG%%+*}"
@@ -35,5 +83,5 @@ jobs:
           gh release delete "$tag" --yes --cleanup-tag || true
           gh release create "$tag" --prerelease --title "Grammars ${UPSTREAM_TAG%%+*}" \
             --target "$GITHUB_SHA" \
-            --notes "Tree-sitter grammars and highlight queries copied from lapce/tree-sitter-grammars $UPSTREAM_TAG. Planck downloads these for syntax highlighting." \
+            --notes "Tree-sitter grammars and highlight queries copied from lapce/tree-sitter-grammars $UPSTREAM_TAG, plus Linux arm64 grammars built from the same commit. Planck downloads these for syntax highlighting." \
             assets/*
