@@ -75,7 +75,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    command::{CommandKind, PlanckCommand},
+    command::{CommandKind, InternalCommand, PlanckCommand},
     config::{PlanckConfig, color::PlanckColor},
     editor::{EditorData, compute_screen_lines, gutter::FoldingRanges},
     find::{Find, FindProgress, FindResult},
@@ -793,6 +793,21 @@ impl Doc {
     }
 
     fn check_auto_save(&self) {
+        // Untitled text only lives in the session, so write it once typing pauses.
+        if matches!(self.content.get_untracked(), DocContent::Scratch { .. }) {
+            let rev = self.rev();
+            let doc = self.clone();
+            exec_after(Duration::from_millis(1000), move |_| {
+                let current_rev = doc
+                    .buffer
+                    .try_with_untracked(|b| b.as_ref().map(|b| b.rev()));
+                if current_rev == Some(rev) {
+                    doc.common
+                        .internal_command
+                        .send(InternalCommand::SaveSession);
+                }
+            });
+        }
         let config = self.common.config.get_untracked();
         if config.editor.autosave_interval > 0 {
             let Some(path) = self.content.with_untracked(|c| c.path().cloned())

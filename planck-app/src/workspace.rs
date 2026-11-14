@@ -36,6 +36,11 @@ pub struct PlanckWorkspace {
 }
 
 impl PlanckWorkspace {
+    /// No folder or space open, only loose files and Untitled ones.
+    pub fn is_files_only(&self) -> bool {
+        self.path.is_none() && self.space.is_none()
+    }
+
     pub fn is_space_file(path: &Path) -> bool {
         path.extension().is_some_and(|e| e == SPACE_EXTENSION)
     }

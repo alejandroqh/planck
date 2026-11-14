@@ -1850,6 +1850,12 @@ impl MainSplitData {
                             )),
                             DocContent::Local => None,
                             DocContent::History(_) => None,
+                            // An emptied Untitled tab has nothing to lose.
+                            DocContent::Scratch { .. }
+                                if doc.buffer.with_untracked(|b| b.len() == 0) =>
+                            {
+                                None
+                            }
                             DocContent::Scratch { name, .. } => {
                                 Some((name, doc, editor))
                             }
@@ -1959,6 +1965,14 @@ impl MainSplitData {
             if let Some((name, doc, editor)) =
                 self.editor_tab_child_close_warning(&child)
             {
+                // With autosave on there is no save step, so a file closed mid-typing just gets saved.
+                if doc.content.with_untracked(|c| c.is_file())
+                    && self.common.config.get_untracked().editor.autosave_interval
+                        > 0
+                {
+                    editor.save(false, || {});
+                    return self.editor_tab_child_close(editor_tab_id, child, true);
+                }
                 let internal_command = self.common.internal_command;
                 let main_split = self.clone();
 
@@ -2002,7 +2016,7 @@ impl MainSplitData {
                             );
                         });
                         Some(AlertButton {
-                            text: "Save".to_string(),
+                            text: "Save As…".to_string(),
                             action: save_action,
                         })
                     }
@@ -2046,7 +2060,7 @@ impl MainSplitData {
                             buttons: vec![
                                 save_button,
                                 AlertButton {
-                                    text: "Don't Save".to_string(),
+                                    text: "Discard".to_string(),
                                     action: Rc::new(move || {
                                         internal_command
                                             .send(InternalCommand::HideAlert);

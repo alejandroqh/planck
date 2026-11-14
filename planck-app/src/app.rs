@@ -346,8 +346,8 @@ impl AppData {
                 );
                 initial_windows += 1;
             }
-        } else if files.is_none() {
-            // There were no dirs and no files specified, so we'll load the last windows
+        } else {
+            // No dirs specified, so we'll load the last windows and open any files in the first one
             match db.get_app() {
                 Ok(app_info) => {
                     for info in app_info.windows {
@@ -363,9 +363,10 @@ impl AppData {
                             config
                         };
                         let app_data = self.clone();
+                        let files = files.take().unwrap_or_default();
                         app = app.window(
                             move |window_id| {
-                                app_data.app_view(window_id, info, vec![])
+                                app_data.app_view(window_id, info, files)
                             },
                             Some(config),
                         );
@@ -3840,6 +3841,8 @@ pub fn launch() {
         tracing_handle: reload_handle,
         config,
     };
+    // New window tabs look here for other open files-only sessions.
+    provide_context(windows);
 
     let app = app_data.create_windows(db.clone(), cli.paths);
 

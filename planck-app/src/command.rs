@@ -763,6 +763,8 @@ pub enum InternalCommand {
         buttons: Vec<AlertButton>,
     },
     HideAlert,
+    /// Write the open tabs and Untitled text to the session.
+    SaveSession,
     SaveScratchDoc {
         doc: Rc<Doc>,
     },

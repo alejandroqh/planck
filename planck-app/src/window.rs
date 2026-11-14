@@ -275,7 +275,7 @@ impl WindowData {
                         let (_, old_window_tab) = window_tabs.remove(index);
                         old_window_tab.proxy.shutdown();
                         let db: Arc<PlanckDb> = use_context().unwrap();
-                        if let Err(err) = db.save_window_tab(old_window_tab) {
+                        if let Err(err) = db.save_window_tab(&old_window_tab) {
                             tracing::error!("{:?}", err);
                         }
                     }

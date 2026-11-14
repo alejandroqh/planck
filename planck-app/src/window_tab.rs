@@ -83,7 +83,7 @@ use crate::{
         call_hierarchy_view::{CallHierarchyData, CallHierarchyItemData},
         data::{PanelData, PanelSection, default_panel_order},
         kind::PanelKind,
-        position::PanelContainerPosition,
+        position::{PanelContainerPosition, PanelPosition},
     },
     proxy::{ProxyData, new_proxy},
     rename::RenameData,
@@ -94,7 +94,7 @@ use crate::{
         panel::TerminalPanelData,
     },
     tracing::*,
-    window::WindowCommonData,
+    window::{WindowCommonData, WindowData},
     workspace::{PlanckWorkspace, SPACE_EXTENSION, WorkspaceInfo, add_space_folder},
 };
 
@@ -171,6 +171,8 @@ pub struct WindowTabData {
     pub scope: Scope,
     pub window_tab_id: WindowTabId,
     pub workspace: Arc<PlanckWorkspace>,
+    /// False for a second files-only tab: it starts empty and is never saved.
+    pub keep_session: bool,
     pub palette: PaletteData,
     pub main_split: MainSplitData,
     pub file_explorer: FileExplorerData,
@@ -289,6 +291,22 @@ const SPACE_FILE_SPEC: FileSpec = FileSpec {
 };
 
 /// Adds folders to a space file, then reopens the space in the current window tab.
+/// Whether a tab that keeps the files-only session is open in any window.
+fn files_only_tab_open() -> bool {
+    use_context::<RwSignal<im::HashMap<floem::window::WindowId, WindowData>>>()
+        .is_some_and(|windows| {
+            windows.with_untracked(|windows| {
+                windows.values().any(|w| {
+                    w.window_tabs.with_untracked(|tabs| {
+                        tabs.iter().any(|(_, t)| {
+                            t.keep_session && t.workspace.is_files_only()
+                        })
+                    })
+                })
+            })
+        })
+}
+
 fn add_folder_and_reopen(
     window_command: Listener<WindowCommand>,
     space: PathBuf,
@@ -321,14 +339,15 @@ impl WindowTabData {
             workspace
         };
 
-        let workspace_info = if workspace.path.is_some() {
+        // Every files-only tab shares one saved session, so only the first one
+        // open restores and saves it; the saved Untitled files never open twice.
+        // shortcut: workspace tabs restored inside one window don't see each
+        // other here, give files-only sessions their own ids if that bites.
+        let keep_session = !workspace.is_files_only() || !files_only_tab_open();
+        let workspace_info = if keep_session {
             db.get_workspace_info(&workspace).ok()
         } else {
-            let mut info = db.get_workspace_info(&workspace).ok();
-            if let Some(info) = info.as_mut() {
-                info.split.children.clear();
-            }
-            info
+            None
         };
 
         let config = PlanckConfig::load(&workspace);
@@ -498,6 +517,12 @@ impl WindowTabData {
                     common.clone(),
                 )
             });
+        // Files-only sessions start with the whole left bar hidden; the status
+        // bar button brings it back.
+        if workspace.is_files_only() {
+            panel.set_shown(&PanelPosition::LeftTop, false);
+            panel.set_shown(&PanelPosition::LeftBottom, false);
+        }
 
         let terminal = TerminalPanelData::new(
             workspace.clone(),
@@ -535,6 +560,7 @@ impl WindowTabData {
             scope: cx,
             window_tab_id: WindowTabId::next(),
             workspace,
+            keep_session,
             palette,
             main_split,
             terminal,
@@ -776,7 +802,7 @@ impl WindowTabData {
                 });
             }
             CloseFolder => {
-                {
+                if !self.workspace.is_files_only() {
                     let window_command = self.common.window_common.window_command;
                     let workspace = PlanckWorkspace::default();
                     window_command.send(WindowCommand::SetWorkspace { workspace });
@@ -2002,6 +2028,12 @@ impl WindowTabData {
             }
             InternalCommand::HideAlert => {
                 self.alert_data.active.set(false);
+            }
+            InternalCommand::SaveSession => {
+                let db: Arc<PlanckDb> = use_context().unwrap();
+                if let Err(err) = db.save_window_tab(self) {
+                    tracing::error!("{:?}", err);
+                }
             }
             InternalCommand::SaveScratchDoc { doc } => {
                 self.main_split.save_scratch_doc(doc);

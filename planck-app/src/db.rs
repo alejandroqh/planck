@@ -111,7 +111,7 @@ impl PlanckDb {
         &self,
         workspace: &PlanckWorkspace,
     ) -> Result<()> {
-        if workspace.path.is_none() && workspace.space.is_none() {
+        if workspace.is_files_only() {
             return Ok(());
         }
         self.save_tx
@@ -148,7 +148,10 @@ impl PlanckDb {
         Ok(())
     }
 
-    pub fn save_window_tab(&self, data: Rc<WindowTabData>) -> Result<()> {
+    pub fn save_window_tab(&self, data: &WindowTabData) -> Result<()> {
+        if !data.keep_session {
+            return Ok(());
+        }
         let workspace = (*data.workspace).clone();
         let workspace_info = data.workspace_info();
 
@@ -264,7 +267,7 @@ impl PlanckDb {
 
     pub fn save_window(&self, data: WindowData) -> Result<()> {
         for (_, window_tab) in data.window_tabs.get_untracked().into_iter() {
-            if let Err(err) = self.save_window_tab(window_tab) {
+            if let Err(err) = self.save_window_tab(&window_tab) {
                 tracing::error!("{:?}", err);
             }
         }
@@ -284,6 +287,9 @@ impl PlanckDb {
     }
 
     pub fn insert_window_tab(&self, data: Rc<WindowTabData>) -> Result<()> {
+        if !data.keep_session {
+            return Ok(());
+        }
         let workspace = (*data.workspace).clone();
         let workspace_info = data.workspace_info();
 
