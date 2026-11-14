@@ -17,6 +17,7 @@ SOURCE = EXTRA / "images" / "icon.svg"
 
 FULL_BOX = "0 0 1024 1024"  # tile with the macOS margin
 TILE_BOX = "100 100 824 824"  # tile edge to edge, for Windows
+LINUX_BOX = "54 54 916 916"  # tile at 90%, the size Linux app icons fill
 MARK_BOX = "224 226 576 576"  # the mark alone
 
 ICO_SIZES = [16, 24, 32, 48, 64, 96, 128, 256]
@@ -84,6 +85,9 @@ def main():
         (ROOT / path).write_text(logo)
 
     render(FULL_BOX, 1024, ROOT / "extra/images/logo.png")
+    (ROOT / "extra/linux/io.github.alejandroqh.planck.svg").write_text(
+        variant(LINUX_BOX, 256)
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -106,7 +110,7 @@ def main():
             icns_pngs, ROOT / "extra/macos/Planck.app/Contents/Resources/planck.icns"
         )
 
-    print("Generated logo.svg, planck_logo.svg, logo.png, planck.ico and planck.icns")
+    print("Generated logo.svg, planck_logo.svg, logo.png, the Linux icon, planck.ico and planck.icns")
 
 
 if __name__ == "__main__":

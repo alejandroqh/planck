@@ -19,7 +19,7 @@ assets  = [
     ["target/release-lto/planck", "usr/bin/", "755"],
     ["extra/linux/io.github.alejandroqh.planck.desktop", "usr/share/applications/", "644"],
     ["extra/linux/io.github.alejandroqh.planck.metainfo.xml", "usr/share/metainfo/", "644"],
-    ["extra/images/logo.png", "usr/share/pixmaps/io.github.alejandroqh.planck.png", "644"],
+    ["extra/linux/io.github.alejandroqh.planck.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -27,7 +27,7 @@ assets = [
     { source = "target/release-lto/planck", dest = "/usr/bin/planck", mode = "755" },
     { source = "extra/linux/io.github.alejandroqh.planck.desktop", dest = "/usr/share/applications/io.github.alejandroqh.planck.desktop", mode = "644" },
     { source = "extra/linux/io.github.alejandroqh.planck.metainfo.xml", dest = "/usr/share/metainfo/io.github.alejandroqh.planck.metainfo.xml", mode = "644" },
-    { source = "extra/images/logo.png", dest = "/usr/share/pixmaps/io.github.alejandroqh.planck.png", mode = "644" },
+    { source = "extra/linux/io.github.alejandroqh.planck.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.alejandroqh.planck.svg", mode = "644" },
 ]
 
 [[bin]]

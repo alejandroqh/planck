@@ -25,7 +25,7 @@ cargo build --profile release-lto --package planck-app --frozen
 install -Dm755 target/release-lto/planck %{buildroot}%{_bindir}/planck
 install -Dm644 extra/linux/io.github.alejandroqh.planck.desktop %{buildroot}/usr/share/applications/io.github.alejandroqh.planck.desktop
 install -Dm644 extra/linux/io.github.alejandroqh.planck.metainfo.xml %{buildroot}/usr/share/metainfo/io.github.alejandroqh.planck.metainfo.xml
-install -Dm644 extra/images/logo.png %{buildroot}/usr/share/pixmaps/io.github.alejandroqh.planck.png
+install -Dm644 extra/linux/io.github.alejandroqh.planck.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/io.github.alejandroqh.planck.svg
 
 %files
 %license LICENSE*
@@ -33,7 +33,7 @@ install -Dm644 extra/images/logo.png %{buildroot}/usr/share/pixmaps/io.github.al
 %{_bindir}/planck
 /usr/share/applications/io.github.alejandroqh.planck.desktop
 /usr/share/metainfo/io.github.alejandroqh.planck.metainfo.xml
-/usr/share/pixmaps/io.github.alejandroqh.planck.png
+/usr/share/icons/hicolor/scalable/apps/io.github.alejandroqh.planck.svg
 
 %changelog
 * Mon Jan 01 2024 Jakub Panek
