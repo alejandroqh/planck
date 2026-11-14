@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="extra/images/logo.png" width="128" alt="Planck logo" />
+</p>
+
 <h1 align="center">Planck</h1>
 
-<h4 align="center">A fast, focused code editor written in Rust</h4>
+<h4 align="center">A fast, focused code editor</h4>
 
 <div align="center">
   <a href="https://github.com/alejandroqh/planck/actions/workflows/ci.yml" target="_blank">
