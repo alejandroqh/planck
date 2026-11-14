@@ -4,32 +4,63 @@ use floem::{
     View,
     event::EventListener,
     menu::{Menu, MenuItem},
-    reactive::{
-        Memo, ReadSignal, RwSignal, SignalGet, SignalUpdate, SignalWith, create_memo,
+    reactive::{Memo, ReadSignal, RwSignal, SignalGet, SignalUpdate, create_memo},
+    style::{AlignItems, CursorStyle, JustifyContent},
+    views::{
+        Decorators, container, drag_window_area, empty, label, stack,
+        stack_from_iter, svg,
     },
-    style::{AlignItems, JustifyContent},
-    views::{Decorators, container, drag_window_area, empty, label, stack, svg},
 };
-use planck_core::meta;
 
 use crate::{
-    app::{clickable_icon, not_clickable_icon, window_menu},
-    command::{PlanckCommand, PlanckWorkbenchCommand, WindowCommand},
+    app::{
+        MENU_BAR, available_update, clickable_icon, menu_bar_menu,
+        not_clickable_icon,
+    },
+    command::{PlanckWorkbenchCommand, WindowCommand},
     config::{PlanckConfig, color::PlanckColor, icon::PlanckIcons},
     listener::Listener,
     main_split::MainSplitData,
-    update::ReleaseInfo,
     window_tab::WindowTabData,
     workspace::PlanckWorkspace,
 };
 
 fn left(
-    planck_command: Listener<PlanckCommand>,
+    data: Rc<WindowTabData>,
     workbench_command: Listener<PlanckWorkbenchCommand>,
     config: ReadSignal<Arc<PlanckConfig>>,
     num_window_tabs: Memo<usize>,
-    in_space: bool,
 ) -> impl View {
+    let latest_release = data.common.window_common.latest_release;
+    // macOS shows these menus in its own menu bar.
+    let menus = MENU_BAR.map(|name| {
+        let data = data.clone();
+        label(move || {
+            if name == "Help" && available_update(latest_release).is_some() {
+                "Help •".to_string()
+            } else {
+                name.to_string()
+            }
+        })
+        .popout_menu(move || menu_bar_menu(&data, name))
+        .style(move |s| {
+            let config = config.get();
+            s.padding_horiz(8.0)
+                .padding_vert(4.0)
+                .border_radius(6.0)
+                .hover(|s| {
+                    s.cursor(CursorStyle::Pointer).background(
+                        config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                    )
+                })
+                .active(|s| {
+                    s.background(
+                        config.color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
+                    )
+                })
+                .apply_if(cfg!(target_os = "macos"), |s| s.hide())
+        })
+    });
     let is_macos = cfg!(target_os = "macos");
     stack((
         empty().style(move |s| {
@@ -48,21 +79,7 @@ fn left(
             },
         ))
         .style(move |s| s.margin_horiz(10.0).apply_if(is_macos, |s| s.hide())),
-        not_clickable_icon(
-            || PlanckIcons::MENU,
-            || false,
-            || false,
-            || "Menu",
-            config,
-        )
-        .popout_menu(move || {
-            window_menu(planck_command, workbench_command, in_space)
-        })
-        .style(move |s| {
-            s.margin_left(4.0)
-                .margin_right(6.0)
-                .apply_if(is_macos, |s| s.hide())
-        }),
+        stack_from_iter(menus).style(|s| s.items_center().margin_right(4.0)),
         clickable_icon(
             || PlanckIcons::ADD,
             move || workbench_command.send(PlanckWorkbenchCommand::NewFile),
@@ -233,103 +250,13 @@ fn middle(
 
 fn right(
     window_command: Listener<WindowCommand>,
-    workbench_command: Listener<PlanckWorkbenchCommand>,
-    latest_release: ReadSignal<Arc<Option<ReleaseInfo>>>,
-    update_in_progress: RwSignal<bool>,
     num_window_tabs: Memo<usize>,
     window_maximized: RwSignal<bool>,
     config: ReadSignal<Arc<PlanckConfig>>,
 ) -> impl View {
-    let latest_version = create_memo(move |_| {
-        let latest_release = latest_release.get();
-        let latest_version =
-            latest_release.as_ref().as_ref().map(|r| r.version.clone());
-        if latest_version.is_some()
-            && latest_version.as_deref() != Some(meta::VERSION)
-        {
-            latest_version
-        } else {
-            None
-        }
-    });
-
-    let has_update = move || latest_version.with(|v| v.is_some());
-
     stack((
         drag_window_area(empty())
             .style(|s| s.height_pct(100.0).flex_basis(0.0).flex_grow(1.0f32)),
-        stack((
-            not_clickable_icon(
-                || PlanckIcons::SETTINGS,
-                || false,
-                || false,
-                || "Settings",
-                config,
-            )
-            .popout_menu(move || {
-                Menu::new("")
-                    .entry(MenuItem::new("Command Palette").action(move || {
-                        workbench_command
-                            .send(PlanckWorkbenchCommand::PaletteCommand)
-                    }))
-                    .separator()
-                    .entry(MenuItem::new("Open Settings").action(move || {
-                        workbench_command.send(PlanckWorkbenchCommand::OpenSettings)
-                    }))
-                    .entry(MenuItem::new("Open Keyboard Shortcuts").action(
-                        move || {
-                            workbench_command
-                                .send(PlanckWorkbenchCommand::OpenKeyboardShortcuts)
-                        },
-                    ))
-                    .entry(MenuItem::new("Open Theme Color Settings").action(
-                        move || {
-                            workbench_command
-                                .send(PlanckWorkbenchCommand::OpenThemeColorSettings)
-                        },
-                    ))
-                    .separator()
-                    .entry(if let Some(v) = latest_version.get_untracked() {
-                        if update_in_progress.get_untracked() {
-                            MenuItem::new(format!("Update in progress ({v})"))
-                                .enabled(false)
-                        } else {
-                            MenuItem::new(format!("Restart to update ({v})")).action(
-                                move || {
-                                    workbench_command.send(
-                                        PlanckWorkbenchCommand::RestartToUpdate,
-                                    )
-                                },
-                            )
-                        }
-                    } else {
-                        MenuItem::new("No update available").enabled(false)
-                    })
-                    .separator()
-                    .entry(MenuItem::new("About Planck").action(move || {
-                        workbench_command.send(PlanckWorkbenchCommand::ShowAbout)
-                    }))
-            }),
-            container(label(|| "1".to_string()).style(move |s| {
-                let config = config.get();
-                s.font_size(10.0)
-                    .color(config.color(PlanckColor::EDITOR_BACKGROUND))
-                    .border_radius(100.0)
-                    .margin_left(5.0)
-                    .margin_top(10.0)
-                    .background(config.color(PlanckColor::EDITOR_CARET))
-            }))
-            .style(move |s| {
-                let has_update = has_update();
-                s.absolute()
-                    .size_pct(100.0, 100.0)
-                    .justify_end()
-                    .items_end()
-                    .pointer_events_none()
-                    .apply_if(!has_update, |s| s.hide())
-            }),
-        ))
-        .style(move |s| s.margin_horiz(6.0)),
         window_controls_view(
             window_command,
             true,
@@ -348,23 +275,18 @@ fn right(
 
 pub fn title(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workspace = window_tab_data.workspace.clone();
-    let planck_command = window_tab_data.common.planck_command;
     let workbench_command = window_tab_data.common.workbench_command;
     let window_command = window_tab_data.common.window_common.window_command;
-    let latest_release = window_tab_data.common.window_common.latest_release;
     let num_window_tabs = window_tab_data.common.window_common.num_window_tabs;
     let window_maximized = window_tab_data.common.window_common.window_maximized;
     let title_height = window_tab_data.title_height;
-    let update_in_progress = window_tab_data.update_in_progress;
     let config = window_tab_data.common.config;
-    let in_space = workspace.space.is_some();
     stack((
         left(
-            planck_command,
+            window_tab_data.clone(),
             workbench_command,
             config,
             num_window_tabs,
-            in_space,
         ),
         middle(
             workspace,
@@ -372,15 +294,7 @@ pub fn title(window_tab_data: Rc<WindowTabData>) -> impl View {
             workbench_command,
             config,
         ),
-        right(
-            window_command,
-            workbench_command,
-            latest_release,
-            update_in_progress,
-            num_window_tabs,
-            window_maximized,
-            config,
-        ),
+        right(window_command, num_window_tabs, window_maximized, config),
     ))
     .on_resize(move |rect| {
         let height = rect.height();

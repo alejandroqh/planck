@@ -3664,10 +3664,7 @@ fn window(window_data: WindowData) -> impl View {
         let window_tab = window_tabs.get(active).or_else(|| window_tabs.last());
         if let Some((_, window_tab)) = window_tab {
             window_tab.common.keypress.track();
-            let workbench_command = window_tab.common.workbench_command;
-            let planck_command = window_tab.common.planck_command;
-            let in_space = window_tab.workspace.space.is_some();
-            window_menu(planck_command, workbench_command, in_space)
+            window_menu(window_tab)
         } else {
             Menu::new("Planck")
         }
@@ -4127,131 +4124,161 @@ fn listen_local_socket(tx: SyncSender<CoreNotification>) -> Result<()> {
     Ok(())
 }
 
-pub fn window_menu(
-    planck_command: Listener<PlanckCommand>,
-    workbench_command: Listener<PlanckWorkbenchCommand>,
-    in_space: bool,
-) -> Menu {
-    Menu::new("Planck")
-        .entry({
-            let mut menu = Menu::new("Planck")
-                .entry(MenuItem::new("About Planck").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::ShowAbout)
-                }))
+/// The menus of the menu bar, in order.
+pub const MENU_BAR: [&str; 5] = ["File", "Edit", "View", "Preferences", "Help"];
+
+/// The native menu on macOS: the app menu followed by the menu bar menus.
+pub fn window_menu(data: &WindowTabData) -> Menu {
+    let workbench_command = data.common.workbench_command;
+    let mut menu = Menu::new("Planck").entry({
+        let mut menu = Menu::new("Planck")
+            .entry(MenuItem::new("About Planck").action(move || {
+                workbench_command.send(PlanckWorkbenchCommand::ShowAbout)
+            }))
+            .separator()
+            .entry(MenuItem::new("Settings...").action(move || {
+                workbench_command.send(PlanckWorkbenchCommand::OpenSettings);
+            }))
+            .separator()
+            .entry(MenuItem::new("Quit Planck").action(move || {
+                workbench_command.send(PlanckWorkbenchCommand::Quit);
+            }));
+        if cfg!(target_os = "macos") {
+            menu = menu
                 .separator()
+                .entry(MenuItem::new("Hide Planck"))
+                .entry(MenuItem::new("Hide Others"))
+                .entry(MenuItem::new("Show All"))
+        }
+        menu
+    });
+    for name in MENU_BAR {
+        menu = menu.entry(menu_bar_menu(data, name));
+    }
+    menu
+}
+
+/// A newer Planck release than the running one, if there is one.
+pub fn available_update(
+    latest_release: ReadSignal<Arc<Option<ReleaseInfo>>>,
+) -> Option<String> {
+    latest_release
+        .get()
+        .as_ref()
+        .as_ref()
+        .map(|r| r.version.clone())
+        .filter(|v| v != meta::VERSION)
+}
+
+/// One menu of the menu bar, by its name in `MENU_BAR`.
+pub fn menu_bar_menu(data: &WindowTabData, name: &str) -> Menu {
+    let planck_command = data.common.planck_command;
+    let workbench_command = data.common.workbench_command;
+    let workbench = move |cmd: PlanckWorkbenchCommand| {
+        move || workbench_command.send(cmd.clone())
+    };
+    let focus = move |cmd: FocusCommand| {
+        move || {
+            planck_command.send(PlanckCommand {
+                kind: CommandKind::Focus(cmd.clone()),
+                data: None,
+            })
+        }
+    };
+    let edit = move |cmd: EditCommand| {
+        move || {
+            planck_command.send(PlanckCommand {
+                kind: CommandKind::Edit(cmd.clone()),
+                data: None,
+            })
+        }
+    };
+    use PlanckWorkbenchCommand as W;
+    match name {
+        "File" => {
+            let mut menu = Menu::new(name)
+                .entry(MenuItem::new("New File").action(workbench(W::NewFile)))
+                .separator()
+                .entry(MenuItem::new("Open").action(workbench(W::OpenFile)))
+                .entry(MenuItem::new("Open Folder").action(workbench(W::OpenFolder)))
+                .entry(MenuItem::new("Open Space").action(workbench(W::OpenSpace)))
                 .entry(
-                    Menu::new("Settings...")
-                        .entry(MenuItem::new("Open Settings").action(move || {
-                            workbench_command
-                                .send(PlanckWorkbenchCommand::OpenSettings);
-                        }))
-                        .entry(MenuItem::new("Open Keyboard Shortcuts").action(
-                            move || {
-                                workbench_command.send(
-                                    PlanckWorkbenchCommand::OpenKeyboardShortcuts,
-                                );
-                            },
-                        )),
+                    MenuItem::new("Add Folder to Space")
+                        .action(workbench(W::AddFolderToSpace)),
                 )
                 .separator()
-                .entry(MenuItem::new("Quit Planck").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::Quit);
-                }));
-            if cfg!(target_os = "macos") {
-                menu = menu
-                    .separator()
-                    .entry(MenuItem::new("Hide Planck"))
-                    .entry(MenuItem::new("Hide Others"))
-                    .entry(MenuItem::new("Show All"))
-            }
-            menu
-        })
-        .separator()
-        .entry(
-            Menu::new("File")
-                .entry(MenuItem::new("New File").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::NewFile);
-                }))
-                .separator()
-                .entry(MenuItem::new("Open").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::OpenFile);
-                }))
-                .entry(MenuItem::new("Open Folder").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::OpenFolder);
-                }))
-                .entry(MenuItem::new("Open Space").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::OpenSpace);
-                }))
-                .entry(MenuItem::new("Add Folder to Space").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::AddFolderToSpace);
-                }))
-                .separator()
-                .entry(MenuItem::new("Save").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Focus(FocusCommand::Save),
-                        data: None,
-                    });
-                }))
-                .entry(MenuItem::new("Save All").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::SaveAll);
-                }))
+                .entry(MenuItem::new("Save").action(focus(FocusCommand::Save)))
+                .entry(MenuItem::new("Save All").action(workbench(W::SaveAll)))
                 .separator()
                 // Closing the workspace closes the whole space when one is open.
                 .entry(
-                    MenuItem::new(if in_space {
+                    MenuItem::new(if data.workspace.space.is_some() {
                         "Close Space"
                     } else {
                         "Close Folder"
                     })
-                    .action(move || {
-                        workbench_command.send(PlanckWorkbenchCommand::CloseFolder);
-                    }),
+                    .action(workbench(W::CloseFolder)),
                 )
-                .entry(MenuItem::new("Close Window").action(move || {
-                    workbench_command.send(PlanckWorkbenchCommand::CloseWindow);
-                })),
-        )
-        .entry(
-            Menu::new("Edit")
-                .entry(MenuItem::new("Cut").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Edit(EditCommand::ClipboardCut),
-                        data: None,
-                    });
-                }))
-                .entry(MenuItem::new("Copy").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Edit(EditCommand::ClipboardCopy),
-                        data: None,
-                    });
-                }))
-                .entry(MenuItem::new("Paste").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Edit(EditCommand::ClipboardPaste),
-                        data: None,
-                    });
-                }))
+                .entry(
+                    MenuItem::new("Close Window").action(workbench(W::CloseWindow)),
+                );
+            // macOS has Quit in the app menu.
+            if !cfg!(target_os = "macos") {
+                menu = menu
+                    .separator()
+                    .entry(MenuItem::new("Quit Planck").action(workbench(W::Quit)));
+            }
+            menu
+        }
+        "Edit" => Menu::new(name)
+            .entry(MenuItem::new("Cut").action(edit(EditCommand::ClipboardCut)))
+            .entry(MenuItem::new("Copy").action(edit(EditCommand::ClipboardCopy)))
+            .entry(MenuItem::new("Paste").action(edit(EditCommand::ClipboardPaste)))
+            .separator()
+            .entry(MenuItem::new("Undo").action(edit(EditCommand::Undo)))
+            .entry(MenuItem::new("Redo").action(edit(EditCommand::Redo)))
+            .separator()
+            .entry(MenuItem::new("Find").action(focus(FocusCommand::Search))),
+        "View" => Menu::new(name)
+            .entry(
+                MenuItem::new("Command Palette")
+                    .action(workbench(W::PaletteCommand)),
+            )
+            .separator()
+            .entry(
+                MenuItem::new("Toggle Left Panel")
+                    .action(workbench(W::TogglePanelLeftVisual)),
+            )
+            .entry(
+                MenuItem::new("Toggle Bottom Panel")
+                    .action(workbench(W::TogglePanelBottomVisual)),
+            ),
+        "Preferences" => Menu::new(name)
+            .entry(MenuItem::new("Settings").action(workbench(W::OpenSettings)))
+            .entry(
+                MenuItem::new("Keyboard Shortcuts")
+                    .action(workbench(W::OpenKeyboardShortcuts)),
+            )
+            .entry(
+                MenuItem::new("Theme Color Settings")
+                    .action(workbench(W::OpenThemeColorSettings)),
+            ),
+        _ => {
+            let update = available_update(data.common.window_common.latest_release);
+            let update_item = match update {
+                Some(v) if data.update_in_progress.get_untracked() => {
+                    MenuItem::new(format!("Update in progress ({v})")).enabled(false)
+                }
+                Some(v) => MenuItem::new(format!("Restart to update ({v})"))
+                    .action(workbench(W::RestartToUpdate)),
+                None => MenuItem::new("No update available").enabled(false),
+            };
+            Menu::new(name)
+                .entry(update_item)
                 .separator()
-                .entry(MenuItem::new("Undo").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Edit(EditCommand::Undo),
-                        data: None,
-                    });
-                }))
-                .entry(MenuItem::new("Redo").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Edit(EditCommand::Redo),
-                        data: None,
-                    });
-                }))
-                .separator()
-                .entry(MenuItem::new("Find").action(move || {
-                    planck_command.send(PlanckCommand {
-                        kind: CommandKind::Focus(FocusCommand::Search),
-                        data: None,
-                    });
-                })),
-        )
+                .entry(MenuItem::new("About Planck").action(workbench(W::ShowAbout)))
+        }
+    }
 }
 fn tab_secondary_click(
     internal_command: Listener<InternalCommand>,
