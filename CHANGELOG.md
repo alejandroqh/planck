@@ -1,5 +1,16 @@
 # Changelog
 
+## Planck 1.0.1 (2026-11-14)
+
+### Bug Fixes
+- Show the menu bar inside the window on macOS too; it was only in the macOS menu bar
+- Syntax highlighting on Linux arm64: Planck now builds the arm64 grammars, which upstream never shipped
+
+### Changes
+- Linux packages no longer include the in-app updater; dnf and apt update them
+- Syntax grammars download from Planck's own GitHub releases instead of Lapce's
+- floem, vger-rs, lsp-types and structdesc are vendored in `libs/`, so builds no longer depend on Lapce repositories
+
 ## Planck 1.0.0 (2026-11-14)
 
 First release. Planck is forked from Lapce 0.4.6.

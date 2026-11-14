@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.1" date="2026-11-14" type="stable">
+            <description>
+                <p>Menu bar inside the window on macOS, syntax highlighting on Linux arm64, Linux packages update through the package manager.</p>
+            </description>
+        </release>
         <release version="1.0.0" date="2026-11-13" type="development">
             <description>
                 <p>First Planck release, forked from Lapce 0.4.6.</p>
