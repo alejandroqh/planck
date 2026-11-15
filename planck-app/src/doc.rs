@@ -2155,8 +2155,6 @@ impl Styling for DocStyling {
     ) {
         let config = self.doc.common.config.get_untracked();
 
-        self.apply_colorization(edid, style, line, &default, attrs_list);
-
         let phantom_text = self.doc.phantom_text(edid, style, line);
         for line_style in self.doc.line_style(line).iter() {
             if let Some(fg_color) = line_style.style.fg_color.as_ref() {
@@ -2167,6 +2165,9 @@ impl Styling for DocStyling {
                 }
             }
         }
+
+        // Last, so bracket colors win over a theme's `punctuation` color.
+        self.apply_colorization(edid, style, line, &default, attrs_list);
     }
 
     fn apply_layout_styles(
