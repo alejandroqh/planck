@@ -1,0 +1,21 @@
+#:schema ../../extra/schemas/color-theme.json
+
+[color-theme]
+name = "MkiP Spectrum"
+
+[color-theme.base]
+dark2 = "#131313"
+dark1 = "#191919"
+background = "#222222"
+text = "#f7f1ff"
+red = "#fc618d"
+orange = "#fd9353"
+yellow = "#fce566"
+green = "#7bd88f"
+blue = "#5ad4e6"
+purple = "#948ae3"
+dimmed1 = "#bab6c0"
+dimmed2 = "#8b888f"
+dimmed3 = "#69676c"
+dimmed4 = "#525053"
+dimmed5 = "#363537"

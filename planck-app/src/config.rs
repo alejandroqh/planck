@@ -45,6 +45,18 @@ const DEFAULT_SETTINGS: &str = include_str!("../../defaults/settings.toml");
 const DEFAULT_LIGHT_THEME: &str = include_str!("../../defaults/light-theme.toml");
 const DEFAULT_DARK_THEME: &str = include_str!("../../defaults/dark-theme.toml");
 const DEFAULT_ICON_THEME: &str = include_str!("../../defaults/icon-theme.toml");
+const MKIP_BASE: &str = include_str!("../../defaults/mkip/base.toml");
+/// Each MkiP palette is layered over `MKIP_BASE`.
+const MKIP_PALETTES: [&str; 8] = [
+    include_str!("../../defaults/mkip/dark.toml"),
+    include_str!("../../defaults/mkip/classic.toml"),
+    include_str!("../../defaults/mkip/machine.toml"),
+    include_str!("../../defaults/mkip/octagon.toml"),
+    include_str!("../../defaults/mkip/ristretto.toml"),
+    include_str!("../../defaults/mkip/spectrum.toml"),
+    include_str!("../../defaults/mkip/light.toml"),
+    include_str!("../../defaults/mkip/light-sun.toml"),
+];
 
 static DEFAULT_CONFIG: Lazy<config::Config> =
     Lazy::new(PlanckConfig::default_config);
@@ -309,6 +321,21 @@ impl PlanckConfig {
         let (name, theme) =
             Self::load_color_theme_from_str(DEFAULT_DARK_THEME).unwrap();
         themes.insert(name.to_lowercase(), (name, theme));
+        for palette in MKIP_PALETTES {
+            let theme = config::Config::builder()
+                .add_source(config::File::from_str(
+                    MKIP_BASE,
+                    config::FileFormat::Toml,
+                ))
+                .add_source(config::File::from_str(
+                    palette,
+                    config::FileFormat::Toml,
+                ))
+                .build()
+                .unwrap();
+            let name = theme.get_string("color-theme.name").unwrap();
+            themes.insert(name.to_lowercase(), (name, theme));
+        }
 
         themes
     }
@@ -1050,5 +1077,31 @@ mod tests {
 
         let pyright = config.lsp.get("pyright").expect("pyright default");
         assert_eq!(pyright.args, vec!["--stdio".to_string()]);
+    }
+
+    #[test]
+    fn mkip_themes_resolve_every_variable() {
+        let themes = PlanckConfig::load_color_themes();
+        for palette in MKIP_PALETTES {
+            let (_, palette) =
+                PlanckConfig::load_color_theme_from_str(palette).unwrap();
+            let name = palette.get_string("color-theme.name").unwrap();
+            let (_, theme) = &themes[&name.to_lowercase()];
+            let theme: ColorThemeConfig = config::Config::builder()
+                .add_source(DEFAULT_DARK_THEME_CONFIG.clone())
+                .add_source(theme.clone())
+                .build()
+                .unwrap()
+                .get("color-theme")
+                .unwrap();
+            let base = theme.base.resolve(None);
+            for (key, value) in
+                theme.base.0.iter().chain(&theme.syntax).chain(&theme.ui)
+            {
+                if let Some(var) = value.strip_prefix('$') {
+                    assert!(base.get(var).is_some(), "{name}: {key} = {value}");
+                }
+            }
+        }
     }
 }

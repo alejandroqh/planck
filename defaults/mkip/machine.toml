@@ -1,0 +1,21 @@
+#:schema ../../extra/schemas/color-theme.json
+
+[color-theme]
+name = "MkiP Machine"
+
+[color-theme.base]
+dark2 = "#161b1e"
+dark1 = "#1d2528"
+background = "#273136"
+text = "#f2fffc"
+red = "#ff6d7e"
+orange = "#ffb270"
+yellow = "#ffed72"
+green = "#a2e57b"
+blue = "#7cd5f1"
+purple = "#baa0f8"
+dimmed1 = "#b8c4c3"
+dimmed2 = "#8b9798"
+dimmed3 = "#6b7678"
+dimmed4 = "#545f62"
+dimmed5 = "#3a4449"

@@ -1,0 +1,24 @@
+#:schema ../../extra/schemas/color-theme.json
+
+[color-theme]
+name = "MkiP Light Sun"
+
+[color-theme.base]
+dark2 = "#d2c9c4"
+dark1 = "#eee5de"
+background = "#f8efe7"
+text = "#2c232e"
+red = "#ce4770"
+orange = "#d4572b"
+yellow = "#b16803"
+green = "#218871"
+blue = "#2473b6"
+purple = "#6851a2"
+dimmed1 = "#72696d"
+dimmed2 = "#92898a"
+dimmed3 = "#a59c9c"
+dimmed4 = "#beb5b3"
+dimmed5 = "#d2c9c4"
+# Terminal black and white swap places on a light background
+black = "$text"
+white = "$dark2"
