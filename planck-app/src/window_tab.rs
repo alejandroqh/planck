@@ -112,6 +112,7 @@ pub enum Focus {
 pub enum DragContent {
     Panel(PanelKind),
     EditorTab(EditorTabChild),
+    File(PathBuf),
 }
 
 impl DragContent {

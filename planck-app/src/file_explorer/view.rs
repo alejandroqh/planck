@@ -34,7 +34,7 @@ use crate::{
     },
     source_control::SourceControlData,
     text_input::TextInputBuilder,
-    window_tab::{Focus, WindowTabData},
+    window_tab::{DragContent, Focus, WindowTabData},
     workspace::PlanckWorkspace,
 };
 
@@ -386,6 +386,7 @@ fn file_explorer_view(
     let secondary_click_data = data.clone();
     let scroll_rect = create_rw_signal(Rect::ZERO);
     let focus = data.common.focus;
+    let dragging = data.common.dragging;
 
     scroll(
         virtual_stack(
@@ -501,6 +502,11 @@ fn file_explorer_view(
                     let double_click_path = path.clone();
                     let secondary_click_path = path.clone();
                     let aux_click_path = path.clone();
+                    let drag_path = path.clone();
+                    // Files can be dragged onto an editor group to open there.
+                    if !is_dir {
+                        view.id().draggable();
+                    }
                     view.on_click_stop({
                         let kind = kind.clone();
                         move |_| {
@@ -518,16 +524,27 @@ fn file_explorer_view(
                     .on_secondary_click_stop(move |_| {
                         secondary_click_data.secondary_click(&secondary_click_path);
                     })
-                    .on_event_stop(
-                        EventListener::PointerDown,
-                        move |event| {
-                            if let Event::PointerDown(pointer_event) = event {
-                                if pointer_event.button.is_auxiliary() {
-                                    aux_click_data.middle_click(&aux_click_path);
-                                }
+                    .on_event_stop(EventListener::PointerDown, move |event| {
+                        if let Event::PointerDown(pointer_event) = event {
+                            if pointer_event.button.is_auxiliary() {
+                                aux_click_data.middle_click(&aux_click_path);
                             }
-                        },
-                    )
+                        }
+                    })
+                    .on_event_stop(EventListener::DragStart, move |_| {
+                        dragging.set(Some(DragContent::File(drag_path.clone())));
+                    })
+                    .on_event_stop(EventListener::DragEnd, move |_| {
+                        dragging.set(None);
+                    })
+                    .dragging_style(move |s| {
+                        s.border_radius(6.0).background(
+                            config
+                                .get()
+                                .color(PlanckColor::PANEL_BACKGROUND)
+                                .multiply_alpha(0.7),
+                        )
+                    })
                 } else {
                     view
                 }

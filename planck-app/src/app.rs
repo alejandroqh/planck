@@ -105,7 +105,7 @@ use crate::{
     tracing::*,
     update::ReleaseInfo,
     window::{TabsInfo, WindowData, WindowInfo},
-    window_tab::{Focus, WindowTabData},
+    window_tab::{DragContent, Focus, WindowTabData},
     workspace::PlanckWorkspace,
 };
 
@@ -1447,6 +1447,9 @@ fn editor_tab(
     let internal_command = main_split.common.internal_command;
     let tab_size = create_rw_signal(Size::ZERO);
     let drag_over: RwSignal<Option<DragOverPosition>> = create_rw_signal(None);
+    // A file dragged from the file explorer, which opens in whichever group it is dropped on.
+    let drag_content = common.dragging;
+    let is_file = |d: &Option<DragContent>| matches!(d, Some(DragContent::File(_)));
     stack((
         editor_tab_header(
             window_tab_data.clone(),
@@ -1537,6 +1540,11 @@ fn editor_tab(
                                 drag_over.set(Some(new_drag_over));
                             }
                         }
+                    } else if drag_content.with_untracked(is_file)
+                        && drag_over.get_untracked()
+                            != Some(DragOverPosition::Middle)
+                    {
+                        drag_over.set(Some(DragOverPosition::Middle));
                     }
                 })
                 .on_event_stop(EventListener::DragLeave, move |_| {
@@ -1594,6 +1602,22 @@ fn editor_tab(
                         }
                         drag_over.set(None);
                         EventPropagation::Stop
+                    } else if let Some(DragContent::File(path)) =
+                        drag_content.get_untracked()
+                    {
+                        drag_over.set(None);
+                        main_split.active_editor_tab.set(Some(editor_tab_id));
+                        main_split.go_to_location(
+                            EditorLocation {
+                                path,
+                                position: None,
+                                scroll_offset: None,
+                                ignore_unconfirmed: false,
+                                same_editor_tab: true,
+                            },
+                            None,
+                        );
+                        EventPropagation::Stop
                     } else {
                         EventPropagation::Continue
                     }
@@ -1602,11 +1626,10 @@ fn editor_tab(
                     tab_size.set(rect.size());
                 })
                 .style(move |s| {
-                    s.absolute()
-                        .size_full()
-                        .apply_if(dragging.get().is_none(), |s| {
-                            s.pointer_events_none()
-                        })
+                    s.absolute().size_full().apply_if(
+                        dragging.get().is_none() && !drag_content.with(is_file),
+                        |s| s.pointer_events_none(),
+                    )
                 }),
         ))
         .debug_name("Editor Content and Drag Over")
