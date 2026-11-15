@@ -1,5 +1,12 @@
 # Changelog
 
+## Planck 1.0.6 (2026-11-15)
+
+### Bug Fixes
+- The session is saved every 2 seconds, so a crash, a forced quit or a shutdown with Planck open keeps your windows, tabs, panels and Untitled text
+- Files-only windows restore the panels you left open; only a brand-new session starts with the left bar and bottom panel hidden
+- A double click on the top bar maximizes or restores the window on Wayland too
+
 ## Planck 1.0.5 (2026-11-15)
 
 ### Features

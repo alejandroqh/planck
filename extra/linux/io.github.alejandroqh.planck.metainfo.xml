@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.6" date="2026-11-15" type="stable">
+            <description>
+                <p>Sessions survive a crash or forced quit, files-only windows keep their panels, and a double click on the top bar maximizes the window on Wayland.</p>
+            </description>
+        </release>
         <release version="1.0.5" date="2026-11-15" type="stable">
             <description>
                 <p>A Git Graph panel that draws the history of every branch, notifications when a language server is missing or stops, and a fix for language servers stopping a few seconds after start.</p>
