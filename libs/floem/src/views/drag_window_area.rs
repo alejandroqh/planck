@@ -22,11 +22,16 @@ pub fn drag_window_area<V: IntoView + 'static>(child: V) -> DragWindowArea {
         .on_event_stop(EventListener::PointerDown, |e| {
             if let Event::PointerDown(input_event) = e {
                 if input_event.button.is_primary() {
-                    drag_window();
+                    // On the second press, not on release like DoubleClick: drag_window
+                    // hands the pointer to the compositor, which keeps the release on Wayland.
+                    if input_event.count == 2 {
+                        toggle_window_maximized();
+                    } else {
+                        drag_window();
+                    }
                 }
             }
         })
-        .on_double_click_stop(|_| toggle_window_maximized())
 }
 impl View for DragWindowArea {
     fn id(&self) -> ViewId {
