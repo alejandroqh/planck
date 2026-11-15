@@ -545,7 +545,8 @@ pub fn handle_plugin_server_message(
             let rpc = PluginServerRpc::HostRequest {
                 id: id.clone(),
                 method: value.get_method().unwrap().to_string(),
-                params: value.get_params().unwrap(),
+                // `params` is optional, e.g. rust-analyzer's `workspace/diagnostic/refresh`.
+                params: value.get_params().unwrap_or(Params::None(())),
                 resp: ResponseSender::new(tx),
             };
             server_rpc.handle_rpc(rpc);
@@ -574,7 +575,7 @@ pub fn handle_plugin_server_message(
         Ok(value @ JsonRpc::Notification(_)) => {
             let rpc = PluginServerRpc::HostNotification {
                 method: value.get_method().unwrap().to_string(),
-                params: value.get_params().unwrap(),
+                params: value.get_params().unwrap_or(Params::None(())),
                 from: from.to_string(),
             };
             server_rpc.handle_rpc(rpc);
@@ -1245,5 +1246,31 @@ fn semantic_tokens_legend(
         SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
             options,
         ) => &options.semantic_tokens_options.legend,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_request_without_params_does_not_panic() {
+        let (io_tx, _io_rx) = crossbeam_channel::unbounded();
+        let rpc =
+            PluginServerRpcHandler::new("test".to_string(), None, io_tx.clone());
+        // Sent by rust-analyzer; reading it used to kill the server's reader thread.
+        let message =
+            r#"{"jsonrpc":"2.0","id":12,"method":"workspace/diagnostic/refresh"}"#;
+        assert!(
+            handle_plugin_server_message(&rpc, message, "test", &io_tx).is_none()
+        );
+        // The first message is the handler's own `Initialize`.
+        assert!(matches!(
+            rpc.rpc_rx.try_iter().nth(1),
+            Some(PluginServerRpc::HostRequest {
+                params: Params::None(()),
+                ..
+            })
+        ));
     }
 }
