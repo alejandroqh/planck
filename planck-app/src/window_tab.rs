@@ -518,9 +518,9 @@ impl WindowTabData {
                     common.clone(),
                 )
             });
-        // Files-only sessions start with the left bar and the bottom panel
-        // hidden; the status bar buttons bring them back.
-        if workspace.is_files_only() {
+        // A new files-only session starts with the left bar and the bottom panel
+        // hidden (the status bar buttons bring them back); a saved one restores them.
+        if workspace.is_files_only() && workspace_info.is_none() {
             for position in [
                 PanelPosition::LeftTop,
                 PanelPosition::LeftBottom,
