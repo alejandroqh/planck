@@ -523,26 +523,7 @@ impl Doc {
     }
 
     fn init_parser(&self) {
-        // Inactive bracket colorization makes update_code a no-op, so skip the full text copy.
-        if !self.parser.borrow().active {
-            return;
-        }
-        let code = self.buffer.get_untracked().to_string();
-        self.syntax.with_untracked(|syntax| {
-            if syntax.styles.is_some() {
-                self.parser.borrow_mut().update_code(
-                    code,
-                    &self.buffer.get_untracked(),
-                    Some(syntax),
-                );
-            } else {
-                self.parser.borrow_mut().update_code(
-                    code,
-                    &self.buffer.get_untracked(),
-                    None,
-                );
-            }
-        });
+        self.do_bracket_colorization();
     }
 
     /// Reload the document's content, and is what you should typically use when you want to *set*
@@ -730,23 +711,22 @@ impl Doc {
     }
 
     fn do_bracket_colorization(&self) {
-        if self.parser.borrow().active {
-            self.syntax.with_untracked(|syntax| {
-                if syntax.rev == self.rev() && syntax.styles.is_some() {
-                    self.parser.borrow_mut().update_code(
-                        self.buffer.get_untracked().to_string(),
-                        &self.buffer.get_untracked(),
-                        Some(syntax),
-                    );
-                } else {
-                    self.parser.borrow_mut().update_code(
-                        self.buffer.get_untracked().to_string(),
-                        &self.buffer.get_untracked(),
-                        None,
-                    );
-                }
-            })
+        if !self.parser.borrow().active {
+            return;
         }
+        self.syntax.with_untracked(|syntax| {
+            let fresh = syntax.rev == self.rev() && syntax.styles.is_some();
+            // Tree-sitter files recolor when the reparse lands; the plain parser
+            // would misread lifetimes and char literals until then.
+            if !fresh && syntax.layers.is_some() {
+                return;
+            }
+            self.buffer.with_untracked(|buffer| {
+                self.parser
+                    .borrow_mut()
+                    .update_code(buffer, fresh.then_some(syntax));
+            });
+        })
     }
 
     pub fn do_text_edit(&self, edits: &[TextEdit]) {

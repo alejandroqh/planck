@@ -173,23 +173,13 @@ impl BracketParser {
         *(self.active.borrow_mut()) = false;
     }*/
 
-    pub fn update_code(
-        &mut self,
-        code: String,
-        buffer: &Buffer,
-        syntax: Option<&Syntax>,
-    ) {
+    pub fn update_code(&mut self, buffer: &Buffer, syntax: Option<&Syntax>) {
         let palette = vec![
             "bracket.color.1".to_string(),
             "bracket.color.2".to_string(),
             "bracket.color.3".to_string(),
         ];
-        if self.active
-            && code
-                .chars()
-                .fold(0, |i, c| if c == '\n' { i + 1 } else { i })
-                < self.limit as usize
-        {
+        if self.active && buffer.num_lines() <= self.limit as usize {
             self.bracket_pos = HashMap::new();
             if let Some(syntax) = syntax {
                 if let Some(layers) = &syntax.layers {
@@ -208,7 +198,7 @@ impl BracketParser {
                     }
                 }
             } else {
-                self.code = code.chars().collect();
+                self.code = buffer.to_string().chars().collect();
                 self.cur = 0;
                 self.parse();
                 let mut pos_vec = vec![];
@@ -1246,6 +1236,33 @@ impl Syntax {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bracket_colors_by_depth_and_respects_limit() {
+        let buffer = Buffer::new("(a[b])\n)");
+        let mut parser = BracketParser::new(String::new(), true, 2);
+        parser.update_code(&buffer, None);
+        let colors = |line: usize| -> Vec<String> {
+            parser.bracket_pos[&line]
+                .iter()
+                .map(|s| s.style.fg_color.clone().unwrap())
+                .collect()
+        };
+        assert_eq!(
+            colors(0),
+            [
+                "bracket.color.1",
+                "bracket.color.2",
+                "bracket.color.2",
+                "bracket.color.1"
+            ]
+        );
+        assert_eq!(colors(1), ["bracket.unpaired"]);
+
+        parser.limit = 1;
+        parser.update_code(&buffer, None);
+        assert!(parser.bracket_pos.is_empty());
+    }
 
     #[test]
     fn test_lens() {
