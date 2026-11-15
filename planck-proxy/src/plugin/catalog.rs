@@ -192,13 +192,15 @@ impl PluginCatalog {
                         .downcast_ref::<std::io::Error>()
                         .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound);
                     if not_found {
-                        // A default server that isn't installed: not an error.
-                        core_rpc.log(
-                            LogLevel::Info,
-                            format!(
-                                "language server {name} not started: `{command}` not found"
-                            ),
-                            None,
+                        // A warning, not an error: default servers are optional.
+                        core_rpc.show_message(
+                            format!("Language server: {name}"),
+                            ShowMessageParams {
+                                typ: MessageType::WARNING,
+                                message: format!(
+                                    "`{command}` is not installed, so completions, diagnostics and symbols are off for these files. Install it and restart Planck, or set `disabled = true` under `[lsp.{name}]` in settings to stop this message."
+                                ),
+                            },
                         );
                     } else {
                         core_rpc.show_message(

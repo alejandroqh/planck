@@ -4,7 +4,10 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     process::{self, Child, Command, Stdio},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
 };
 
@@ -65,6 +68,8 @@ pub struct LspClient {
     workspace: Option<PathBuf>,
     host: PluginHostHandler,
     options: Option<Value>,
+    /// Set before Planck kills the server, so that exit isn't reported as a failure.
+    stopping: Arc<AtomicBool>,
 }
 
 impl PluginServerHandler for LspClient {
@@ -220,6 +225,32 @@ impl LspClient {
             }
         });
 
+        let core_rpc = plugin_rpc.core_rpc.clone();
+        let name_closure = name.clone();
+        // Returns the last lines the server printed, to explain why it stopped.
+        let stderr_thread = thread::spawn(move || {
+            let name = name_closure;
+            let mut tail = std::collections::VecDeque::new();
+            for line in BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                let line = line.trim_end().to_string();
+                core_rpc.log(
+                    planck_rpc::core::LogLevel::Trace,
+                    line.clone(),
+                    Some(format!("planck_proxy::plugin::lsp::{name}::stderr")),
+                );
+                if !line.is_empty() {
+                    if tail.len() == 5 {
+                        tail.pop_front();
+                    }
+                    tail.push_back(line);
+                }
+            }
+            Vec::from(tail).join("\n")
+        });
+
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stopping_closure = stopping.clone();
         let local_server_rpc = server_rpc.clone();
         let core_rpc = plugin_rpc.core_rpc.clone();
         let name_closure = name.clone();
@@ -251,36 +282,19 @@ impl LspClient {
                                 "planck_proxy::plugin::lsp::{name}::stopped"
                             )),
                         );
+                        if !stopping_closure.load(Ordering::Relaxed) {
+                            let stderr = stderr_thread.join().unwrap_or_default();
+                            core_rpc.show_message(
+                                format!("Language server: {name}"),
+                                ShowMessageParams {
+                                    typ: MessageType::ERROR,
+                                    message: stopped_message(&server, &stderr),
+                                },
+                            );
+                        }
                         return;
                     }
                 };
-            }
-        });
-
-        let core_rpc = plugin_rpc.core_rpc.clone();
-        let name_closure = name.clone();
-        thread::spawn(move || {
-            let name = name_closure;
-            let mut reader = Box::new(BufReader::new(stderr));
-            loop {
-                let mut line = String::new();
-                match reader.read_line(&mut line) {
-                    Ok(n) => {
-                        if n == 0 {
-                            return;
-                        }
-                        core_rpc.log(
-                            planck_rpc::core::LogLevel::Trace,
-                            line.trim_end().to_string(),
-                            Some(format!(
-                                "planck_proxy::plugin::lsp::{name}::stderr"
-                            )),
-                        );
-                    }
-                    Err(_) => {
-                        return;
-                    }
-                }
             }
         });
 
@@ -299,6 +313,7 @@ impl LspClient {
             workspace,
             host,
             options,
+            stopping,
         })
     }
 
@@ -355,8 +370,23 @@ impl LspClient {
             false,
         ) {
             Ok(value) => {
-                let result: InitializeResult =
-                    serde_json::from_value(value).unwrap();
+                let result: InitializeResult = match serde_json::from_value(value) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        self.plugin_rpc.core_rpc.show_message(
+                            format!("Language server: {}", self.server_rpc.server_name),
+                            ShowMessageParams {
+                                typ: MessageType::ERROR,
+                                message: format!(
+                                    "Planck couldn't read the server's capabilities, so it was stopped: {err}"
+                                ),
+                            },
+                        );
+                        self.server_rpc.shutdown();
+                        self.shutdown();
+                        return;
+                    }
+                };
                 self.host.server_capabilities = result.capabilities;
                 self.server_rpc.server_notification(
                     Initialized::METHOD,
@@ -391,6 +421,7 @@ impl LspClient {
     }
 
     fn shutdown(&mut self) {
+        self.stopping.store(true, Ordering::Relaxed);
         if let Err(err) = self.process.kill() {
             tracing::error!("{:?}", err);
         }
@@ -514,5 +545,44 @@ pub fn get_change_for_sync_kind(
         }
         TextDocumentSyncKind::INCREMENTAL => Some(vec![content_change.clone()]),
         _ => None,
+    }
+}
+
+/// What to tell the user when the server `command` exits on its own, given its last `stderr` lines.
+fn stopped_message(command: &str, stderr: &str) -> String {
+    let mut message = format!("`{command}` stopped unexpectedly.");
+    if !stderr.is_empty() {
+        message.push_str("\n\n");
+        message.push_str(stderr);
+    }
+    // A rustup proxy whose component isn't installed, the usual case for rust-analyzer.
+    if stderr.contains("Unknown binary") {
+        let component = Path::new(command)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(command);
+        message.push_str(&format!(
+            "\n\nInstall it with `rustup component add {component}`, then restart Planck."
+        ));
+    }
+    message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stopped_message;
+
+    #[test]
+    fn stopped_message_explains_a_missing_rustup_component() {
+        let message = stopped_message(
+            "rust-analyzer",
+            "error: Unknown binary 'rust-analyzer' in official toolchain 'stable-x86_64-unknown-linux-gnu'.",
+        );
+        assert!(message.contains("Unknown binary 'rust-analyzer'"));
+        assert!(message.contains("rustup component add rust-analyzer"));
+        assert_eq!(
+            stopped_message("gopls", ""),
+            "`gopls` stopped unexpectedly."
+        );
     }
 }
