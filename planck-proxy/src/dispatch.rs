@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs, io,
+    fs,
+    hash::{DefaultHasher, Hash, Hasher},
+    io,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -37,7 +39,7 @@ use planck_rpc::{
         ProxyHandler, ProxyNotification, ProxyRequest, ProxyResponse,
         ProxyRpcHandler, SearchMatch,
     },
-    source_control::{BlameHunk, CommitInfo, DiffInfo, FileDiff},
+    source_control::{BlameHunk, CommitInfo, DiffInfo, FileDiff, GraphCommit},
     style::{LineStyle, SemanticStyles},
     terminal::TermId,
 };
@@ -456,6 +458,29 @@ impl ProxyHandler for Dispatcher {
                         .map(|commits| ProxyResponse::GitFileCommitsResponse {
                             commits,
                         })
+                        .map_err(|e| RpcError {
+                            code: 0,
+                            message: e.to_string(),
+                        });
+                    proxy_rpc.handle_response(id, result);
+                });
+            }
+            GitGraph {} => {
+                let Some(workspace) = self.workspace.clone() else {
+                    self.respond_rpc(
+                        id,
+                        Err(RpcError {
+                            code: 0,
+                            message: "no workspace".to_string(),
+                        }),
+                    );
+                    return;
+                };
+                let proxy_rpc = self.proxy_rpc.clone();
+                thread::spawn(move || {
+                    // shortcut: the newest 1000 commits only; load more on scroll if older history is wanted.
+                    let result = git_graph(&workspace, 1000)
+                        .map(|commits| ProxyResponse::GitGraphResponse { commits })
                         .map_err(|e| RpcError {
                             code: 0,
                             message: e.to_string(),
@@ -1552,11 +1577,17 @@ fn git_diff_new(workspace_path: &Path) -> Option<DiffInfo> {
         | FileDiff::Renamed(p, _)
         | FileDiff::Deleted(p) => p.clone(),
     });
+    let mut refs = DefaultHasher::new();
+    for reference in repo.references().ok()?.flatten() {
+        (reference.name_bytes(), reference.target()).hash(&mut refs);
+    }
+    repo.head().ok().and_then(|h| h.target()).hash(&mut refs);
     Some(DiffInfo {
         head: name,
         branches,
         tags,
         diffs: file_diffs,
+        refs_hash: refs.finish(),
     })
 }
 
@@ -1602,6 +1633,65 @@ fn git_file_commits(path: &Path, limit: usize) -> Result<Vec<CommitInfo>> {
         }
     }
     Ok(commits)
+}
+
+/// The newest `limit` commits of every branch, remote branch and HEAD, children before parents.
+fn git_graph(workspace: &Path, limit: usize) -> Result<Vec<GraphCommit>> {
+    let repo = Repository::discover(workspace)?;
+    let you = repo.config()?.get_string("user.email").ok();
+    let mut walk = repo.revwalk()?;
+    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+    let head = repo.head().ok();
+    let head_branch = head
+        .as_ref()
+        .filter(|h| h.is_branch())
+        .and_then(|h| h.shorthand().ok());
+    let mut refs: HashMap<Oid, Vec<String>> = HashMap::new();
+    if let Some(id) = head.as_ref().and_then(|h| h.target()) {
+        walk.push(id)?;
+        if head_branch.is_none() {
+            refs.entry(id).or_default().push("HEAD".to_string());
+        }
+    }
+    for reference in repo.references()?.flatten() {
+        let (Ok(name), Ok(commit)) =
+            (reference.shorthand(), reference.peel_to_commit())
+        else {
+            continue;
+        };
+        let label = if reference.is_tag() {
+            format!("tag: {name}")
+        } else if reference.is_branch() || reference.is_remote() {
+            // `origin/HEAD` only repeats the remote's default branch.
+            if reference.target().is_none() {
+                continue;
+            }
+            walk.push(commit.id())?;
+            if Some(name) == head_branch {
+                format!("HEAD -> {name}")
+            } else {
+                name.to_string()
+            }
+        } else {
+            continue;
+        };
+        let labels = refs.entry(commit.id()).or_default();
+        if label.starts_with("HEAD") {
+            labels.insert(0, label);
+        } else {
+            labels.push(label);
+        }
+    }
+    walk.take(limit)
+        .map(|id| {
+            let commit = repo.find_commit(id?)?;
+            Ok(GraphCommit {
+                info: commit_info(&commit, you.as_deref()),
+                parents: commit.parent_ids().map(|id| id.to_string()).collect(),
+                refs: refs.remove(&commit.id()).unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 fn commit_info(commit: &git2::Commit, you: Option<&str>) -> CommitInfo {
@@ -1840,6 +1930,44 @@ mod tests {
         assert_eq!(line(0), Some(("You", "add notes")));
         assert_eq!(line(1), None);
         assert_eq!(line(2), Some(("You", "add notes")));
+    }
+
+    #[test]
+    fn git_graph_lists_branches_with_parents_and_refs() {
+        let dir = temp_repo_dir("graph");
+        let first = commit_notes(&dir, "one\n", "first");
+        let repo = Repository::open(&dir).unwrap();
+        repo.branch("feature", &repo.find_commit(first).unwrap(), false)
+            .unwrap();
+        repo.tag_lightweight("v1", &repo.find_object(first, None).unwrap(), false)
+            .unwrap();
+        let second = commit_notes(&dir, "two\n", "second");
+
+        let commits = git_graph(&dir, 10);
+        // master or main, depending on the user's git config.
+        let head = repo.head().unwrap().shorthand().unwrap().to_string();
+        fs::remove_dir_all(&dir).unwrap();
+        let commits = commits.unwrap();
+        let rows: Vec<_> = commits
+            .iter()
+            .map(|c| (c.info.summary.as_str(), c.parents.clone(), c.refs.clone()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "second",
+                    vec![first.to_string()],
+                    vec![format!("HEAD -> {head}")]
+                ),
+                (
+                    "first",
+                    vec![],
+                    vec!["feature".to_string(), "tag: v1".to_string()]
+                ),
+            ]
+        );
+        assert_eq!(commits[0].info.id, second.to_string());
     }
 
     #[test]

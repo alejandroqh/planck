@@ -99,6 +99,7 @@ impl PlanckIcons {
     pub const FILE_TYPE_SYMLINK_DIRECTORY: &'static str = "file-symlink-directory";
 
     pub const DOCUMENT_SYMBOL: &'static str = "document_symbol";
+    pub const GIT_GRAPH: &'static str = "git_graph";
 
     pub const REFERENCES: &'static str = "references";
 

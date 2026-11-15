@@ -15,6 +15,7 @@ pub enum PanelKind {
     Problem,
     CallHierarchy,
     DocumentSymbol,
+    GitGraph,
     References,
     Implementation,
 }
@@ -29,6 +30,7 @@ impl PanelKind {
             PanelKind::Problem => PlanckIcons::PROBLEM,
             PanelKind::CallHierarchy => PlanckIcons::TYPE_HIERARCHY,
             PanelKind::DocumentSymbol => PlanckIcons::DOCUMENT_SYMBOL,
+            PanelKind::GitGraph => PlanckIcons::GIT_GRAPH,
             PanelKind::References => PlanckIcons::REFERENCES,
             PanelKind::Implementation => PlanckIcons::IMPLEMENTATION,
         }
@@ -53,6 +55,7 @@ impl PanelKind {
             PanelKind::Problem => PanelPosition::BottomLeft,
             PanelKind::CallHierarchy => PanelPosition::BottomLeft,
             PanelKind::DocumentSymbol => PanelPosition::RightTop,
+            PanelKind::GitGraph => PanelPosition::RightTop,
             PanelKind::References => PanelPosition::BottomLeft,
             PanelKind::Implementation => PanelPosition::BottomLeft,
         }

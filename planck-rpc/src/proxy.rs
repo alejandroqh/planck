@@ -28,7 +28,7 @@ use crate::{
     file::{FileNodeItem, PathObject},
     file_line::FileLine,
     plugin::{LspServers, PluginId},
-    source_control::{BlameHunk, CommitInfo, FileDiff},
+    source_control::{BlameHunk, CommitInfo, FileDiff, GraphCommit},
     style::SemanticStyles,
     terminal::{TermId, TerminalProfile},
 };
@@ -112,6 +112,8 @@ pub enum ProxyRequest {
     GitFileCommits {
         path: PathBuf,
     },
+    /// The workspace repository's commits on every branch, newest first.
+    GitGraph {},
     GetReferences {
         path: PathBuf,
         position: Position,
@@ -316,6 +318,9 @@ pub enum ProxyResponse {
     },
     GitFileCommitsResponse {
         commits: Vec<CommitInfo>,
+    },
+    GitGraphResponse {
+        commits: Vec<GraphCommit>,
     },
     NewBufferResponse {
         content: String,
@@ -1006,6 +1011,10 @@ impl ProxyRpcHandler {
 
     pub fn git_file_commits(&self, path: PathBuf, f: impl ProxyCallback + 'static) {
         self.request_async(ProxyRequest::GitFileCommits { path }, f);
+    }
+
+    pub fn git_graph(&self, f: impl ProxyCallback + 'static) {
+        self.request_async(ProxyRequest::GitGraph {}, f);
     }
 
     pub fn rename(

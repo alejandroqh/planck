@@ -2553,6 +2553,7 @@ impl WindowTabData {
             PanelKind::Problem
             | PanelKind::CallHierarchy
             | PanelKind::DocumentSymbol
+            | PanelKind::GitGraph
             | PanelKind::References
             | PanelKind::Implementation => {
                 // Some panels don't accept focus (yet). Fall back to visibility check

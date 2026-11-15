@@ -8,6 +8,8 @@ pub struct DiffInfo {
     pub branches: Vec<String>,
     pub tags: Vec<String>,
     pub diffs: Vec<FileDiff>,
+    /// Hash of every ref and its target, so a commit, fetch or checkout sends a new DiffInfo.
+    pub refs_hash: u64,
 }
 
 /// Lines of a buffer last changed by the same commit, or not committed yet.
@@ -20,7 +22,7 @@ pub struct BlameHunk {
     pub commit: Option<CommitInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CommitInfo {
     pub id: String,
     /// "You" when the author is the repository's user.
@@ -28,6 +30,15 @@ pub struct CommitInfo {
     /// Author time in seconds since the Unix epoch.
     pub time: i64,
     pub summary: String,
+}
+
+/// A commit of the Git Graph panel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct GraphCommit {
+    pub info: CommitInfo,
+    pub parents: Vec<String>,
+    /// Branches and tags pointing at it, like `git log --decorate`: "HEAD -> master", "origin/master", "tag: v1.0".
+    pub refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

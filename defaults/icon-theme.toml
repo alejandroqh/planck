@@ -94,6 +94,7 @@ name = "Planck Codicons"
 "search.replace_all" = "replace-all.svg"
 
 "document_symbol" = "symbol-class.svg"
+"git_graph" = "git-merge.svg"
 "references" = "references.svg"
 "implementation" = "combine.svg"
 "symbol_kind.array" = "symbol-array.svg"

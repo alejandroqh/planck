@@ -30,7 +30,7 @@ use crate::{
     file_explorer::view::file_explorer_panel,
     panel::{
         call_hierarchy_view::show_hierarchy_panel, document_symbol::symbol_panel,
-        implementation_view::implementation_panel,
+        git_graph::git_graph_panel, implementation_view::implementation_panel,
         references_view::references_panel,
     },
     window_tab::{DragContent, WindowTabData},
@@ -508,6 +508,9 @@ fn panel_view(
                 PanelKind::DocumentSymbol => {
                     symbol_panel(window_tab_data.clone(), position).into_any()
                 }
+                PanelKind::GitGraph => {
+                    git_graph_panel(window_tab_data.clone()).into_any()
+                }
                 PanelKind::References => {
                     references_panel(window_tab_data.clone(), position).into_any()
                 }
@@ -567,6 +570,7 @@ fn panel_picker(
                 PanelKind::Problem => "Problems",
                 PanelKind::CallHierarchy => "Call Hierarchy",
                 PanelKind::DocumentSymbol => "Document Symbol",
+                PanelKind::GitGraph => "Git Graph",
                 PanelKind::References => "References",
                 PanelKind::Implementation => "Implementation",
             };

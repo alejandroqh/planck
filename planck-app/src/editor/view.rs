@@ -1257,7 +1257,16 @@ pub(crate) fn blame_text(commit: Option<&CommitInfo>, now: i64) -> String {
     let Some(commit) = commit else {
         return "You • Uncommitted changes".to_string();
     };
-    let ago = (now - commit.time).max(0);
+    let when = time_ago(now - commit.time);
+    let mut summary: String = commit.summary.chars().take(50).collect();
+    if summary.len() < commit.summary.len() {
+        summary.push('…');
+    }
+    format!("{}, {when} • {summary}", commit.author)
+}
+
+/// "just now", "1 day ago", "3 weeks ago" for `ago` seconds.
+pub(crate) fn time_ago(ago: i64) -> String {
     let units = [
         (31_536_000, "year"),
         (2_592_000, "month"),
@@ -1266,18 +1275,13 @@ pub(crate) fn blame_text(commit: Option<&CommitInfo>, now: i64) -> String {
         (3_600, "hour"),
         (60, "minute"),
     ];
-    let when = match units.iter().find(|(secs, _)| ago >= *secs) {
+    match units.iter().find(|(secs, _)| ago >= *secs) {
         None => "just now".to_string(),
         Some((secs, unit)) => match ago / secs {
             1 => format!("1 {unit} ago"),
             n => format!("{n} {unit}s ago"),
         },
-    };
-    let mut summary: String = commit.summary.chars().take(50).collect();
-    if summary.len() < commit.summary.len() {
-        summary.push('…');
     }
-    format!("{}, {when} • {summary}", commit.author)
 }
 
 fn get_sticky_header_info(
