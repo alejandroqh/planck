@@ -18,20 +18,19 @@ pub struct DragWindowArea {
 pub fn drag_window_area<V: IntoView + 'static>(child: V) -> DragWindowArea {
     let id = ViewId::new();
     id.set_children([child]);
-    DragWindowArea { id }
-        .on_event_stop(EventListener::PointerDown, |e| {
-            if let Event::PointerDown(input_event) = e {
-                if input_event.button.is_primary() {
-                    // On the second press, not on release like DoubleClick: drag_window
-                    // hands the pointer to the compositor, which keeps the release on Wayland.
-                    if input_event.count == 2 {
-                        toggle_window_maximized();
-                    } else {
-                        drag_window();
-                    }
+    DragWindowArea { id }.on_event_stop(EventListener::PointerDown, |e| {
+        if let Event::PointerDown(input_event) = e {
+            if input_event.button.is_primary() {
+                // On the second press, not on release like DoubleClick: drag_window
+                // hands the pointer to the compositor, which keeps the release on Wayland.
+                if input_event.count == 2 {
+                    toggle_window_maximized();
+                } else {
+                    drag_window();
                 }
             }
-        })
+        }
+    })
 }
 impl View for DragWindowArea {
     fn id(&self) -> ViewId {
