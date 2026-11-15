@@ -126,8 +126,8 @@ impl EditorInfo {
                     doc,
                     Some(editor_tab_id),
                     None,
-                    self.confirmed
-                        .map(|confirmed| data.scope.create_rw_signal(confirmed)),
+                    // Ignore the saved flag so preview tabs from older sessions open as normal tabs.
+                    None,
                     common,
                 );
                 editor.go_to_location(
@@ -245,7 +245,8 @@ impl EditorData {
     ) -> Self {
         let cx = cx.create_child();
 
-        let confirmed = confirmed.unwrap_or_else(|| cx.create_rw_signal(false));
+        // No preview tabs: every opened file keeps its own tab instead of replacing an unedited one.
+        let confirmed = confirmed.unwrap_or_else(|| cx.create_rw_signal(true));
         EditorData {
             scope: cx,
             editor_tab_id: cx.create_rw_signal(editor_tab_id),

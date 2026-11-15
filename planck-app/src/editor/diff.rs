@@ -159,7 +159,7 @@ impl DiffEditorData {
         common: Rc<CommonData>,
     ) -> Self {
         let cx = cx.create_child();
-        let confirmed = cx.create_rw_signal(false);
+        let confirmed = cx.create_rw_signal(true);
 
         // TODO: ensure that left/right are cleaned up
         let [left, right] = [left_doc, right_doc].map(|doc| {
