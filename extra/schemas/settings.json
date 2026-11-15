@@ -358,6 +358,10 @@
                 },
                 "trim-search-results-whitespace": {
                     "type": "boolean"
+                },
+                "system-monitor": {
+                    "description": "Show CPU, memory and disk usage in the status bar",
+                    "type": "boolean"
                 }
             },
             "required": [],

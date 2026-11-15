@@ -33,6 +33,9 @@ impl PlanckIcons {
     pub const IMAGE_ERROR: &'static str = "image_error";
 
     pub const SCM: &'static str = "scm.icon";
+    pub const STATUS_CPU: &'static str = "status.cpu";
+    pub const STATUS_MEMORY: &'static str = "status.memory";
+    pub const STATUS_DISK: &'static str = "status.disk";
     pub const SCM_DIFF_MODIFIED: &'static str = "scm.diff.modified";
     pub const SCM_DIFF_ADDED: &'static str = "scm.diff.added";
     pub const SCM_DIFF_REMOVED: &'static str = "scm.diff.removed";

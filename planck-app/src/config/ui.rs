@@ -62,6 +62,9 @@ pub struct UIConfig {
 
     #[field_names(desc = "Display the Open Editors section in the explorer")]
     pub open_editors_visible: bool,
+
+    #[field_names(desc = "Show CPU, memory and disk usage in the status bar")]
+    pub system_monitor: bool,
 }
 
 #[derive(
