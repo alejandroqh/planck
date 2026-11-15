@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.4" date="2026-11-15" type="stable">
+            <description>
+                <p>New MkiP color themes based on the Monokai Pro filters, and bracket pair colorization on by default.</p>
+            </description>
+        </release>
         <release version="1.0.3" date="2026-11-15" type="stable">
             <description>
                 <p>System monitor in the status bar, drag files from the explorer into an editor group, and every opened file keeps its own tab.</p>

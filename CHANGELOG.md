@@ -1,5 +1,15 @@
 # Changelog
 
+## Planck 1.0.4 (2026-11-15)
+
+### Features
+- MkiP themes: Dark, Classic, Machine, Octagon, Ristretto, Spectrum, Light and Light Sun, built on the Monokai Pro filter palettes
+- Bracket pair colorization is on by default; turn it off with `editor.bracket-pair-colorization = false`
+
+### Bug Fixes
+- Bracket pair colors no longer lose to a theme's punctuation color
+- Bracket colorization no longer copies the whole file on every keystroke or flickers with wrong colors while tree-sitter reparses
+
 ## Planck 1.0.3 (2026-11-15)
 
 ### Features
