@@ -1,5 +1,14 @@
 # Changelog
 
+## Planck 1.0.3 (2026-11-15)
+
+### Features
+- CPU graph and usage, memory and disk use in the status bar; turn it off with `ui.system-monitor = false`
+- Drag a file from the explorer onto an editor group to open it there
+
+### Changes
+- No preview tabs: every file you open and every new Untitled file keeps its own tab
+
 ## Planck 1.0.2 (2026-11-15)
 
 ### Bug Fixes
