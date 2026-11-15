@@ -184,9 +184,7 @@ impl PlanckDb {
         if let Err(err) = std::fs::create_dir_all(&folder) {
             tracing::error!("{:?}", err);
         }
-        let workspace_info = serde_json::to_string_pretty(info)?;
-        std::fs::write(folder.join(WORKSPACE_INFO), workspace_info)?;
-        Ok(())
+        write_if_changed(&folder.join(WORKSPACE_INFO), info)
     }
 
     pub fn save_app(&self, data: &AppData) -> Result<()> {
@@ -213,9 +211,7 @@ impl PlanckDb {
     }
 
     pub fn insert_app_info(&self, info: AppInfo) -> Result<()> {
-        let info = serde_json::to_string_pretty(&info)?;
-        std::fs::write(self.folder.join(APP), info)?;
-        Ok(())
+        write_if_changed(&self.folder.join(APP), &info)
     }
 
     pub fn insert_app(&self, data: AppData) -> Result<()> {
@@ -377,6 +373,19 @@ fn workspace_folder_name(workspace: &PlanckWorkspace) -> String {
     url::form_urlencoded::Serializer::new(String::new())
         .append_key_only(&workspace.to_string())
         .finish()
+}
+
+/// The session is saved every 2 seconds, so skip the write when nothing changed.
+/// Compares JSON values, not text: hash maps serialize in a different order each time.
+fn write_if_changed(path: &Path, value: &impl serde::Serialize) -> Result<()> {
+    let value = serde_json::to_value(value)?;
+    let old = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|old| serde_json::from_str::<serde_json::Value>(&old).ok());
+    if old.as_ref() != Some(&value) {
+        std::fs::write(path, serde_json::to_string_pretty(&value)?)?;
+    }
+    Ok(())
 }
 
 fn doc_path_name(path: &Path) -> String {

@@ -3998,6 +3998,7 @@ pub fn launch() {
             app_data.run_app_command(command);
         });
     }
+    save_session_periodically(app_data.app_command);
 
     app.on_event(move |event| match event {
         floem::AppEvent::WillTerminate => {
@@ -4015,6 +4016,15 @@ pub fn launch() {
         }
     })
     .run();
+}
+
+/// Save windows, tabs and panels every 2 seconds, so a crash or a forced quit
+/// loses at most that much, not everything since the last window close.
+fn save_session_periodically(app_command: Listener<AppCommand>) {
+    floem::action::exec_after(std::time::Duration::from_secs(2), move |_| {
+        app_command.send(AppCommand::SaveApp);
+        save_session_periodically(app_command);
+    });
 }
 
 /// Uses a login shell to load the correct shell environment for the current user.
