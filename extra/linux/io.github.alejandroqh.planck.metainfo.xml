@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.5" date="2026-11-15" type="stable">
+            <description>
+                <p>A Git Graph panel that draws the history of every branch, notifications when a language server is missing or stops, and a fix for language servers stopping a few seconds after start.</p>
+            </description>
+        </release>
         <release version="1.0.4" date="2026-11-15" type="stable">
             <description>
                 <p>New MkiP color themes based on the Monokai Pro filters, and bracket pair colorization on by default.</p>

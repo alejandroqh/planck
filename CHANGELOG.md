@@ -1,5 +1,17 @@
 # Changelog
 
+## Planck 1.0.5 (2026-11-15)
+
+### Features
+- Git Graph panel in the right sidebar: the history of every branch as colored lanes, with branch and tag labels; it refreshes when a commit, checkout or fetch moves a ref
+- A notification when a language server isn't installed, stops unexpectedly or can't be initialized, with the `rustup component add rust-analyzer` hint when that component is missing
+
+### Bug Fixes
+- Language servers no longer stop a few seconds after starting when they send a message without params, such as rust-analyzer's `workspace/diagnostic/refresh`; files opened after that got no symbols, hover or go to definition
+
+### Changes
+- Dark MkiP themes use a softer text color, closer to Planck Dark
+
 ## Planck 1.0.4 (2026-11-15)
 
 ### Features
