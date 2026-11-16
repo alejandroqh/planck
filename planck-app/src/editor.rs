@@ -36,7 +36,7 @@ use lapce_xi_rope::{Rope, RopeDelta, Transformer};
 use lsp_types::{
     CodeActionResponse, CompletionItem, CompletionTextEdit, GotoDefinitionResponse,
     HoverContents, InlayHint, InlayHintLabel, InlineCompletionTriggerKind, Location,
-    MarkedString, MarkupKind, Range, TextEdit,
+    MarkedString, MarkupKind, NumberOrString, Range, TextEdit,
 };
 use nucleo::Utf32Str;
 use planck_core::{
@@ -3020,17 +3020,54 @@ impl EditorData {
             Some(path) => path,
             None => return,
         };
+        // The messages of the diagnostics under the pointer go first, so an error is
+        // explained even when the server has no hover for that spot.
+        let diagnostics: Vec<String> = doc
+            .diagnostics()
+            .diagnostics_span
+            .get_untracked()
+            .iter_chunks(offset..offset + 1)
+            .filter(|(iv, _)| {
+                iv.start <= offset && offset < iv.end.max(iv.start + 1)
+            })
+            .map(|(_, diag)| {
+                let code = match &diag.code {
+                    Some(NumberOrString::Number(n)) => format!(" ({n})"),
+                    Some(NumberOrString::String(s)) => format!(" ({s})"),
+                    None => String::new(),
+                };
+                match &diag.source {
+                    Some(source) => format!("{source}: {}{code}", diag.message),
+                    None => format!("{}{code}", diag.message),
+                }
+            })
+            .collect();
         let config = self.common.config;
         let hover_data = self.common.hover.clone();
         let editor_id = self.id();
         let send = create_ext_action(self.scope, move |resp| {
-            if let Ok(ProxyResponse::HoverResponse { hover, .. }) = resp {
-                let content = parse_hover_resp(hover, &config.get_untracked());
-                hover_data.content.set(content);
-                hover_data.offset.set(offset);
-                hover_data.editor_id.set(editor_id);
-                hover_data.active.set(true);
+            let config = config.get_untracked();
+            let mut content = Vec::new();
+            for text in &diagnostics {
+                if !content.is_empty() {
+                    content.push(MarkdownContent::Separator);
+                }
+                content.extend(from_plaintext(text, 1.8, &config));
             }
+            if let Ok(ProxyResponse::HoverResponse { hover, .. }) = resp {
+                let hover = parse_hover_resp(hover, &config);
+                if !content.is_empty() && !hover.is_empty() {
+                    content.push(MarkdownContent::Separator);
+                }
+                content.extend(hover);
+            }
+            if content.is_empty() {
+                return;
+            }
+            hover_data.content.set(content);
+            hover_data.offset.set(offset);
+            hover_data.editor_id.set(editor_id);
+            hover_data.active.set(true);
         });
         self.common.proxy.get_hover(0, path, position, |resp| {
             send(resp);
