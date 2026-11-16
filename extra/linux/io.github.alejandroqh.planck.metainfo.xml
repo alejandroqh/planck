@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.7" date="2026-11-16" type="stable">
+            <description>
+                <p>Mouse support in the terminal (apps like vim, htop and tmux, middle-click paste, copy on select), error messages in the hover, and space explorer additions: an add-folder button, Open in Terminal, and open folders remembered across restarts.</p>
+            </description>
+        </release>
         <release version="1.0.6" date="2026-11-15" type="stable">
             <description>
                 <p>Sessions survive a crash or forced quit, files-only windows keep their panels, and a double click on the top bar maximizes the window on Wayland.</p>

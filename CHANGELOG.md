@@ -1,5 +1,19 @@
 # Changelog
 
+## Planck 1.0.7 (2026-11-16)
+
+### Features
+- Terminal mouse support: apps that ask for the mouse (vim, htop, tmux, less) get clicks, drags and the wheel; hold Shift to select text instead
+- The terminal selection follows the drag, is copied to the clipboard, and middle click pastes it (the primary selection on Linux, the clipboard on macOS)
+- Full-screen terminal apps without mouse mode, such as `less` and `man`, scroll with the wheel
+- Hovering an error or warning shows its message, even where the language server has no hover for that spot
+- Space explorer: a + button in the header adds a folder, and Open in Terminal in the right-click menu opens a terminal in that folder
+- A space with several folders starts with them collapsed, and the explorer remembers the open folders and the selected item across restarts
+- An empty files-only window opens with an Untitled tab
+
+### Bug Fixes
+- Running `planck` while it is still running with no window open (macOS keeps it in the dock) opens a window instead of doing nothing
+
 ## Planck 1.0.6 (2026-11-15)
 
 ### Bug Fixes
