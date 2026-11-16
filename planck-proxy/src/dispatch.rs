@@ -1591,13 +1591,32 @@ fn git_diff_new(workspace_path: &Path) -> Option<DiffInfo> {
     })
 }
 
+/// `path` relative to the work tree of `repo`. libgit2 resolves symlinks in the work
+/// tree path (on macOS /var is /private/var), so a path opened through a symlink is
+/// resolved too: its folder, as the file may be deleted from disk but still in HEAD.
+fn repo_relative_path(repo: &Repository, path: &Path) -> Result<PathBuf> {
+    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
+    if let Ok(relative) = path.strip_prefix(workdir) {
+        return Ok(relative.to_path_buf());
+    }
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(anyhow!("{} is not a file", path.display()));
+    };
+    let path = parent.canonicalize()?.join(name);
+    let workdir = workdir.canonicalize()?;
+    let relative = path.strip_prefix(&workdir).with_context(|| {
+        format!("{} is not in {}", path.display(), workdir.display())
+    })?;
+    Ok(relative.to_path_buf())
+}
+
 /// The content of `path` at `version`: "head" or a git revision such as a branch or commit.
 fn file_at_version(path: &Path, version: &str) -> Result<String> {
     let repo = Repository::discover(path.parent().unwrap_or(path))?;
-    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
+    let path = repo_relative_path(&repo, path)?;
     let spec = if version == "head" { "HEAD" } else { version };
     let tree = repo.revparse_single(spec)?.peel_to_tree()?;
-    let blob = repo.find_blob(tree.get_path(path.strip_prefix(workdir)?)?.id())?;
+    let blob = repo.find_blob(tree.get_path(&path)?.id())?;
     Ok(std::str::from_utf8(blob.content())
         .context("content bytes to string")?
         .to_string())
@@ -1606,14 +1625,13 @@ fn file_at_version(path: &Path, version: &str) -> Result<String> {
 /// The newest commits reachable from HEAD that changed `path`, at most `limit`.
 fn git_file_commits(path: &Path, limit: usize) -> Result<Vec<CommitInfo>> {
     let repo = Repository::discover(path.parent().unwrap_or(path))?;
-    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
-    let path = path.strip_prefix(workdir)?;
+    let path = repo_relative_path(&repo, path)?;
     let you = repo.config()?.get_string("user.email").ok();
     let file_id = |commit: &git2::Commit| {
         commit
             .tree()
             .ok()?
-            .get_path(path)
+            .get_path(&path)
             .ok()
             .map(|entry| entry.id())
     };
@@ -1722,8 +1740,7 @@ fn commit_info(commit: &git2::Commit, you: Option<&str>) -> CommitInfo {
 // cache the committed blame per HEAD if refreshes after edits feel slow.
 fn git_blame(path: &Path, content: &str) -> Result<Vec<BlameHunk>> {
     let repo = Repository::discover(path.parent().unwrap_or(path))?;
-    let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
-    let committed = repo.blame_file(path.strip_prefix(workdir)?, None)?;
+    let committed = repo.blame_file(&repo_relative_path(&repo, path)?, None)?;
     let blame = committed.blame_buffer(content.as_bytes())?;
     let you = repo.config()?.get_string("user.email").ok();
     let mut hunks = Vec::with_capacity(blame.len());
@@ -1990,5 +2007,32 @@ mod tests {
         let summaries: Vec<_> = commits.iter().map(|c| c.summary.as_str()).collect();
         assert_eq!(summaries, ["add two", "add notes"]);
         assert_eq!(commits[1].id, first.to_string());
+    }
+
+    /// libgit2 resolves symlinks in the work tree path, so a file opened through a
+    /// symlinked folder (on macOS, anything under /tmp or /var) must still be found.
+    #[cfg(unix)]
+    #[test]
+    fn git_file_helpers_follow_symlinked_folders() {
+        let dir = temp_repo_dir("symlinked");
+        let real = dir.join("real");
+        fs::create_dir(&real).unwrap();
+        commit_notes(&real, "one\n", "add notes");
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let path = link.join("notes.txt");
+
+        let head = file_at_version(&path, "head");
+        let commits = git_file_commits(&path, 10);
+        let hunks = git_blame(&path, "one\n");
+        // A file deleted from disk but still in HEAD.
+        fs::remove_file(real.join("notes.txt")).unwrap();
+        let deleted = file_at_version(&path, "head");
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(head.unwrap(), "one\n");
+        assert_eq!(commits.unwrap().len(), 1);
+        assert_eq!(hunks.unwrap().len(), 1);
+        assert_eq!(deleted.unwrap(), "one\n");
     }
 }
