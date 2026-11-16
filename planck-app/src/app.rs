@@ -196,7 +196,7 @@ impl AppData {
             .title("Planck")
     }
 
-    pub fn new_window(&self, folder: Option<PathBuf>) {
+    pub fn new_window(&self, folder: Option<PathBuf>, files: Vec<PathObject>) {
         let config = self
             .active_window()
             .map(|window| {
@@ -237,7 +237,7 @@ impl AppData {
                             workspaces: vec![workspace],
                         },
                     },
-                    vec![],
+                    files.clone(),
                 )
             },
             Some(config),
@@ -277,7 +277,7 @@ impl AppData {
                 floem::close_window(window_id);
             }
             AppCommand::NewWindow { folder } => {
-                self.new_window(folder);
+                self.new_window(folder, vec![]);
             }
             AppCommand::WindowGotFocus(window_id) => {
                 self.active_window.set(window_id);
@@ -459,6 +459,15 @@ impl AppData {
                         same_editor_tab: false,
                     },
                 });
+            }
+            // Like Sublime, a files-only window opens with at least one tab to type in.
+            if window_tab.workspace.is_files_only()
+                && window_tab
+                    .main_split
+                    .editor_tabs
+                    .with_untracked(|tabs| tabs.is_empty())
+            {
+                window_tab.main_split.new_file();
             }
         }
 
@@ -3979,6 +3988,24 @@ pub fn launch() {
                     window_tab.open_paths(&paths);
                     // focus window after open doc
                     floem::action::focus_window();
+                } else {
+                    // The app outlives its last window (macOS keeps it in the dock), so
+                    // a relaunch must bring a window back instead of doing nothing.
+                    let (dirs, files): (Vec<PathObject>, Vec<PathObject>) =
+                        paths.iter().cloned().partition(|p| {
+                            p.is_dir || PlanckWorkspace::is_space_file(&p.path)
+                        });
+                    if dirs.is_empty() {
+                        app_data.new_window(None, files);
+                    } else {
+                        let mut files = Some(files);
+                        for dir in dirs {
+                            app_data.new_window(
+                                Some(dir.path),
+                                files.take().unwrap_or_default(),
+                            );
+                        }
+                    }
                 }
             }
         });
@@ -4011,7 +4038,7 @@ pub fn launch() {
             has_visible_windows,
         } => {
             if !has_visible_windows {
-                app_data.new_window(None);
+                app_data.new_window(None, vec![]);
             }
         }
     })
