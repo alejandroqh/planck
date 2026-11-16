@@ -10,6 +10,7 @@ use floem::{
     },
     style::{AlignItems, CursorStyle, Position, Style},
     text::Style as FontStyle,
+    unit::PxPctAuto,
     views::{
         Container, Decorators, container, dyn_stack, label, scroll, stack, svg,
         virtual_stack,
@@ -25,9 +26,10 @@ use planck_rpc::{
 use super::{data::FileExplorerData, node::FileNodeVirtualList};
 use crate::{
     app::clickable_icon,
-    command::InternalCommand,
+    command::{InternalCommand, PlanckWorkbenchCommand},
     config::{PlanckConfig, color::PlanckColor, icon::PlanckIcons},
     editor_tab::{EditorTabChild, EditorTabData},
+    listener::Listener,
     panel::{
         data::PanelSection, kind::PanelKind, position::PanelPosition,
         view::PanelBuilder,
@@ -77,7 +79,11 @@ pub fn file_explorer_panel(
             move |s| s.apply_if(!config.get().ui.open_editors_visible, |s| s.hide()),
         )
         .add_with_header(
-            file_explorer_header(&window_tab_data.workspace, config),
+            file_explorer_header(
+                &window_tab_data.workspace,
+                window_tab_data.common.workbench_command,
+                config,
+            ),
             container(file_explorer_view(data, source_control))
                 .style(|s| s.size_full()),
             window_tab_data
@@ -92,6 +98,7 @@ pub fn file_explorer_panel(
 /// a folder (italic kind, name), or nothing yet.
 fn file_explorer_header(
     workspace: &PlanckWorkspace,
+    workbench_command: Listener<PlanckWorkbenchCommand>,
     config: ReadSignal<Arc<PlanckConfig>>,
 ) -> impl View + use<> {
     let is_space = workspace.space.is_some();
@@ -128,8 +135,20 @@ fn file_explorer_header(
                 .selectable(false)
                 .apply_if(!has_detail, |s| s.hide())
         }),
+        clickable_icon(
+            || PlanckIcons::ADD,
+            move || workbench_command.send(PlanckWorkbenchCommand::AddFolderToSpace),
+            || false,
+            || false,
+            || "Add Folder to Space",
+            config,
+        )
+        .style(move |s| {
+            s.margin_left(PxPctAuto::Auto)
+                .apply_if(kind.is_empty(), |s| s.hide())
+        }),
     ))
-    .style(|s| s.items_center().min_width(0.0))
+    .style(|s| s.items_center().min_width(0.0).flex_grow(1.0f32))
 }
 
 /// `path` with the home directory shortened to `~`.

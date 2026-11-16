@@ -211,6 +211,16 @@ pub fn remove_space_folder(space: &Path, folder: &Path) -> Result<()> {
 pub struct WorkspaceInfo {
     pub split: SplitInfo,
     pub panel: PanelInfo,
+    /// Sessions saved before the explorer state was kept have none.
+    #[serde(default)]
+    pub explorer: Option<ExplorerInfo>,
+}
+
+/// The file explorer's open folders and selected item, kept across restarts.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct ExplorerInfo {
+    pub expanded: Vec<PathBuf>,
+    pub selected: Option<PathBuf>,
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ use crate::{
     keypress::{KeyPressFocus, condition::Condition},
     main_split::Editors,
     window_tab::CommonData,
-    workspace::{PlanckWorkspace, remove_space_folder},
+    workspace::{ExplorerInfo, PlanckWorkspace, remove_space_folder},
 };
 
 enum RenamedPath {
@@ -146,7 +146,12 @@ impl KeyPressFocus for FileExplorerData {
 }
 
 impl FileExplorerData {
-    pub fn new(cx: Scope, editors: Editors, common: Rc<CommonData>) -> Self {
+    pub fn new(
+        cx: Scope,
+        editors: Editors,
+        common: Rc<CommonData>,
+        saved: Option<&ExplorerInfo>,
+    ) -> Self {
         let folders = common.workspace.folder_paths();
         let roots = cx.create_rw_signal(
             folders
@@ -172,10 +177,76 @@ impl FileExplorerData {
             left_diff_path: cx.create_rw_signal(None),
             select: cx.create_rw_signal(None),
         };
-        for path in &folders {
+        if let Some(saved) = saved {
+            data.restore_expanded(saved.expanded.clone());
+            data.select
+                .set(saved.selected.clone().map(FileNodeViewKind::Path));
+        } else if let [path] = folders.as_slice() {
+            // A space with several folders starts collapsed so every root stays in view.
             data.toggle_expand(path);
         }
         data
+    }
+
+    /// The open folders and the selected item, saved with the session.
+    pub fn explorer_info(&self) -> ExplorerInfo {
+        fn open_dirs(node: &FileNodeItem, out: &mut Vec<PathBuf>) {
+            if node.is_dir && node.open {
+                out.push(node.path.clone());
+                for child in node.children.values() {
+                    open_dirs(child, out);
+                }
+            }
+        }
+        let mut expanded = Vec::new();
+        self.roots.with_untracked(|roots| {
+            for root in roots {
+                open_dirs(root, &mut expanded);
+            }
+        });
+        let selected = match self.select.get_untracked() {
+            Some(FileNodeViewKind::Path(path)) => Some(path),
+            _ => None,
+        };
+        ExplorerInfo { expanded, selected }
+    }
+
+    /// Opens the saved folders. A folder inside one that is not read yet only
+    /// exists once its parent is read, so it waits for that read and retries.
+    fn restore_expanded(&self, dirs: Vec<PathBuf>) {
+        let (to_read, pending) = self
+            .roots
+            .try_update(|roots| {
+                let mut to_read = Vec::new();
+                let mut pending = Vec::new();
+                for dir in dirs {
+                    let Some(root) = root_of_mut(roots, &dir) else {
+                        continue;
+                    };
+                    match root.get_file_node_mut(&dir) {
+                        Some(node) if node.is_dir => {
+                            node.open = true;
+                            if !node.read {
+                                to_read.push(dir.clone());
+                            }
+                            root.update_node_count_recursive(&dir);
+                        }
+                        Some(_) => {}
+                        None => pending.push(dir),
+                    }
+                }
+                (to_read, pending)
+            })
+            .unwrap_or_default();
+        for dir in to_read {
+            let data = self.clone();
+            let pending = pending.clone();
+            self.read_dir_cb(&dir, move |_| {
+                if !pending.is_empty() {
+                    data.restore_expanded(pending);
+                }
+            });
+        }
     }
 
     /// Rename the currently selected file, if it exists.
@@ -657,6 +728,25 @@ impl FileExplorerData {
                         err
                     );
                 }
+            }));
+        }
+
+        {
+            let dir = base_path_a.clone();
+            let common = common.clone();
+            menu = menu.entry(MenuItem::new("Open in Terminal").action(move || {
+                let profile = planck_rpc::terminal::TerminalProfile {
+                    workdir: url::Url::from_file_path(&dir).ok(),
+                    ..common
+                        .config
+                        .get_untracked()
+                        .terminal
+                        .get_default_profile()
+                        .unwrap_or_default()
+                };
+                common.internal_command.send(InternalCommand::NewTerminal {
+                    profile: Some(profile),
+                });
             }));
         }
 

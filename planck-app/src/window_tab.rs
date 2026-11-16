@@ -431,8 +431,14 @@ impl WindowTabData {
             cx.create_rw_signal(CodeActionData::new(cx, common.clone()));
         let source_control =
             SourceControlData::new(cx, main_split.editors, common.clone());
-        let file_explorer =
-            FileExplorerData::new(cx, main_split.editors, common.clone());
+        let file_explorer = FileExplorerData::new(
+            cx,
+            main_split.editors,
+            common.clone(),
+            workspace_info
+                .as_ref()
+                .and_then(|info| info.explorer.as_ref()),
+        );
 
         if let Some(info) = workspace_info.as_ref() {
             let root_split = main_split.root_split;
@@ -1917,6 +1923,8 @@ impl WindowTabData {
             }
             InternalCommand::NewTerminal { profile } => {
                 self.terminal.new_tab(profile);
+                self.panel.show_panel(&PanelKind::Terminal);
+                self.common.focus.set(Focus::Panel(PanelKind::Terminal));
             }
             InternalCommand::SplitTerminal { term_id } => {
                 self.terminal.split(term_id);
@@ -2317,6 +2325,7 @@ impl WindowTabData {
         WorkspaceInfo {
             split: main_split_data.get_untracked().split_info(self),
             panel: self.panel.panel_info(),
+            explorer: Some(self.file_explorer.explorer_info()),
         }
     }
 
