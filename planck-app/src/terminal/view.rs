@@ -767,9 +767,11 @@ impl View for TerminalView {
                 | MouseAction::LeftDouble { .. } =
                     self.current_mouse_action
                 {
-                    // Like other Linux terminals, a selection is ready for middle-click paste.
+                    // Copy on select, to the clipboard and (on Linux) the primary
+                    // selection that middle click pastes.
                     if let Some(text) = self.raw.read().term.selection_to_string() {
-                        let _ = floem::Clipboard::set_selection(text);
+                        let _ = floem::Clipboard::set_selection(text.clone());
+                        SystemClipboard::new().put_string(text);
                     }
                 }
             }
