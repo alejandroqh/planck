@@ -7,7 +7,6 @@ static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
 
 pub struct Clipboard {
     clipboard: Box<dyn ClipboardProvider>,
-    #[allow(dead_code)]
     selection: Option<Box<dyn ClipboardProvider>>,
 }
 
@@ -39,6 +38,27 @@ impl Clipboard {
             .as_mut()
             .ok_or(ClipboardError::NotAvailable)?
             .clipboard
+            .set_contents(s)
+            .map_err(|e| ClipboardError::ProviderError(e.to_string()))
+    }
+
+    /// The primary selection (middle-click paste), on platforms that have one.
+    pub fn get_selection() -> Result<String, ClipboardError> {
+        CLIPBOARD
+            .lock()
+            .as_mut()
+            .and_then(|c| c.selection.as_mut())
+            .ok_or(ClipboardError::NotAvailable)?
+            .get_contents()
+            .map_err(|e| ClipboardError::ProviderError(e.to_string()))
+    }
+
+    pub fn set_selection(s: String) -> Result<(), ClipboardError> {
+        CLIPBOARD
+            .lock()
+            .as_mut()
+            .and_then(|c| c.selection.as_mut())
+            .ok_or(ClipboardError::NotAvailable)?
             .set_contents(s)
             .map_err(|e| ClipboardError::ProviderError(e.to_string()))
     }

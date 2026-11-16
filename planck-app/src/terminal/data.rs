@@ -174,25 +174,12 @@ impl KeyPressFocus for TerminalData {
                     }
                 }
                 EditCommand::ClipboardPaste => {
-                    let mut clipboard = SystemClipboard::new();
-                    let mut check_bracketed_paste: bool = false;
-                    if self.mode.get_untracked() == Mode::Terminal {
-                        let raw = self.raw.get_untracked();
-                        let mut raw = raw.write();
-                        let term = &mut raw.term;
-                        term.selection = None;
-                        if term.mode().contains(TermMode::BRACKETED_PASTE) {
-                            check_bracketed_paste = true;
-                        }
-                    }
-                    if let Some(s) = clipboard.get_string() {
-                        if check_bracketed_paste {
-                            self.receive_char("\x1b[200~");
-                            self.receive_char(&s.replace('\x1b', ""));
-                            self.receive_char("\x1b[201~");
-                        } else {
-                            self.receive_char(&s);
-                        }
+                    // receive_char only writes in terminal mode
+                    if self.mode.get_untracked() == Mode::Terminal
+                        && let Some(s) = SystemClipboard::new().get_string()
+                    {
+                        let s = self.raw.get_untracked().write().paste_text(&s);
+                        self.receive_char(&s);
                     }
                 }
                 _ => return CommandExecuted::No,

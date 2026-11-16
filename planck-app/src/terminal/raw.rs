@@ -6,6 +6,7 @@ use alacritty_terminal::{
     grid::Dimensions,
     index::{Column, Direction, Line, Point},
     term::{
+        TermMode,
         cell::{Flags, LineLength},
         search::{Match, RegexIter, RegexSearch},
         test::TermSize,
@@ -58,6 +59,17 @@ pub struct RawTerminal {
 }
 
 impl RawTerminal {
+    /// Clears the selection and returns `text` as the shell should receive a paste
+    /// of it: wrapped in bracketed-paste markers when the app asked for them.
+    pub fn paste_text(&mut self, text: &str) -> String {
+        self.term.selection = None;
+        if self.term.mode().contains(TermMode::BRACKETED_PASTE) {
+            format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""))
+        } else {
+            text.to_string()
+        }
+    }
+
     pub fn new(
         term_id: TermId,
         proxy: ProxyRpcHandler,

@@ -1,15 +1,16 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc, time::SystemTime};
 
 use alacritty_terminal::{
-    grid::Dimensions,
+    grid::{Dimensions, Scroll},
     index::Side,
     selection::{Selection, SelectionType},
-    term::{RenderableContent, cell::Flags, test::TermSize},
+    term::{RenderableContent, TermMode, cell::Flags, test::TermSize},
 };
 use floem::{
     Renderer, View, ViewId,
     context::{EventCx, PaintCx},
     event::{Event, EventPropagation},
+    keyboard::Modifiers,
     kurbo::Stroke,
     peniko::{
         Color,
@@ -73,6 +74,9 @@ pub struct TerminalView {
     hyper_regs: Vec<Regex>,
     previous_mouse_action: MouseAction,
     current_mouse_action: MouseAction,
+    /// Button held down while the app gets mouse reports, and the last cell sent.
+    report_button: Option<u8>,
+    report_cell: (usize, usize),
     /// Shaped glyphs keyed by (char, bold, fg rgba), cleared on config change.
     glyph_cache: RefCell<HashMap<(char, bool, u32), TextLayout>>,
     /// Size of one cell, recomputed on config change.
@@ -148,6 +152,8 @@ pub fn terminal_view(
         hyper_regs: vec![reg],
         previous_mouse_action: Default::default(),
         current_mouse_action: Default::default(),
+        report_button: None,
+        report_cell: (0, 0),
         glyph_cache: Default::default(),
         char_size: TerminalView::measure_char_size(&config.get_untracked()),
     }
@@ -318,6 +324,55 @@ impl TerminalView {
         }
         self.previous_mouse_action = self.current_mouse_action;
         self.current_mouse_action = next_action;
+    }
+
+    /// The app's mouse mode when it wants clicks reported, unless Shift is held
+    /// to select text instead, as in other terminals.
+    fn mouse_mode(&self, modifiers: Modifiers) -> Option<TermMode> {
+        if modifiers.shift() || self.mode.get_untracked() != Mode::Terminal {
+            return None;
+        }
+        let mode = *self.raw.read().term.mode();
+        mode.intersects(TermMode::MOUSE_MODE).then_some(mode)
+    }
+
+    /// The (column, row) cell under `pos` on screen, clamped to the grid.
+    fn viewport_cell(&self, pos: Point) -> (usize, usize) {
+        let (cols, rows) = self.terminal_size();
+        let line_height = self.config.get_untracked().terminal_line_height() as f64;
+        let col = (pos.x.max(0.0) / self.char_size().width) as usize;
+        let row = (pos.y.max(0.0) / line_height) as usize;
+        (col.min(cols - 1), row.min(rows - 1))
+    }
+
+    fn report_mouse(
+        &self,
+        mode: TermMode,
+        code: u8,
+        cell: (usize, usize),
+        pressed: bool,
+    ) {
+        if let Some(msg) = mouse_report(mode, code, cell, pressed) {
+            self.proxy.terminal_write(self.term_id, msg);
+        }
+    }
+
+    /// Middle click: pastes the primary selection, or the clipboard where the
+    /// platform has no primary selection (macOS, Windows).
+    fn paste_selection(&self) {
+        if self.mode.get_untracked() != Mode::Terminal {
+            return;
+        }
+        let text = floem::Clipboard::get_selection()
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| SystemClipboard::new().get_string());
+        if let Some(text) = text {
+            let mut raw = self.raw.write();
+            let text = raw.paste_text(&text);
+            raw.term.scroll_display(Scroll::Bottom);
+            self.proxy.terminal_write(self.term_id, text);
+        }
     }
 
     fn get_terminal_point(&self, pos: Point) -> alacritty_terminal::index::Point {
@@ -524,9 +579,124 @@ impl View for TerminalView {
     ) -> EventPropagation {
         match event {
             Event::PointerDown(e) => {
+                // Continue in every case: the panel takes focus on pointer down.
+                let button = if e.button.is_primary() {
+                    Some(0)
+                } else if e.button.is_auxiliary() {
+                    Some(1)
+                } else if e.button.is_secondary() {
+                    Some(2)
+                } else {
+                    None
+                };
+                if let (Some(mode), Some(button)) =
+                    (self.mouse_mode(e.modifiers), button)
+                {
+                    let cell = self.viewport_cell(e.pos);
+                    let code = button + modifier_bits(e.modifiers);
+                    self.report_mouse(mode, code, cell, true);
+                    self.report_button = Some(button);
+                    self.report_cell = cell;
+                    _cx.update_active(self.id);
+                    return EventPropagation::Continue;
+                }
+                if button == Some(1) {
+                    self.paste_selection();
+                    return EventPropagation::Continue;
+                }
                 self.update_mouse_action_by_down(e);
+                if button == Some(0) {
+                    // keep receiving moves while a selection is dragged outside
+                    _cx.update_active(self.id);
+                }
+            }
+            Event::PointerMove(e) => {
+                if let Some(mode) = self.mouse_mode(e.modifiers) {
+                    let cell = self.viewport_cell(e.pos);
+                    let button = match self.report_button {
+                        Some(button) => mode
+                            .intersects(
+                                TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION,
+                            )
+                            .then_some(button),
+                        None => mode.contains(TermMode::MOUSE_MOTION).then_some(3),
+                    };
+                    if let (Some(button), true) = (button, cell != self.report_cell)
+                    {
+                        let code = 32 + button + modifier_bits(e.modifiers);
+                        self.report_mouse(mode, code, cell, true);
+                        self.report_cell = cell;
+                    }
+                    return EventPropagation::Continue;
+                }
+                if let MouseAction::LeftDown { pos }
+                | MouseAction::LeftOnceAndDown { pos, .. } =
+                    self.current_mouse_action
+                {
+                    let start = self.get_terminal_point(pos);
+                    let end = self.get_terminal_point(e.pos);
+                    if start != end {
+                        let mut selection =
+                            Selection::new(SelectionType::Simple, start, Side::Left);
+                        selection.update(end, Side::Right);
+                        selection.include_all();
+                        self.raw.write().term.selection = Some(selection);
+                        _cx.app_state_mut().request_paint(self.id);
+                    }
+                }
+            }
+            Event::PointerWheel(e) => {
+                let report = self.mouse_mode(e.modifiers);
+                let term_mode = *self.raw.read().term.mode();
+                // less, man and other full-screen apps without mouse mode scroll by arrow keys
+                let arrows = report.is_none()
+                    && !e.modifiers.shift()
+                    && self.mode.get_untracked() == Mode::Terminal
+                    && term_mode
+                        .contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL);
+                if report.is_none() && !arrows {
+                    // the panel's wheel listener scrolls the history
+                    return EventPropagation::Continue;
+                }
+                let lines = {
+                    let step =
+                        self.config.get_untracked().terminal_line_height() as f64;
+                    let mut raw = self.raw.write();
+                    raw.scroll_delta -= e.delta.y;
+                    let lines = (raw.scroll_delta / step) as i32;
+                    raw.scroll_delta -= lines as f64 * step;
+                    lines
+                };
+                let up = lines > 0;
+                let cell = self.viewport_cell(e.pos);
+                for _ in 0..lines.unsigned_abs() {
+                    if let Some(mode) = report {
+                        let code =
+                            if up { 64 } else { 65 } + modifier_bits(e.modifiers);
+                        self.report_mouse(mode, code, cell, true);
+                    } else {
+                        let app_cursor = term_mode.contains(TermMode::APP_CURSOR);
+                        let seq = match (up, app_cursor) {
+                            (true, true) => "\x1bOA",
+                            (true, false) => "\x1b[A",
+                            (false, true) => "\x1bOB",
+                            (false, false) => "\x1b[B",
+                        };
+                        self.proxy.terminal_write(self.term_id, seq.to_string());
+                    }
+                }
+                return EventPropagation::Stop;
             }
             Event::PointerUp(e) => {
+                if let Some(button) = self.report_button.take() {
+                    if let Some(mode) = self.mouse_mode(e.modifiers) {
+                        let cell = self.viewport_cell(e.pos);
+                        let code = button + modifier_bits(e.modifiers);
+                        self.report_mouse(mode, code, cell, false);
+                    }
+                    // the app had the click, so no context menu or selection
+                    return EventPropagation::Stop;
+                }
                 self.update_mouse_action_by_up(e);
                 let mut clear_selection = false;
                 match self.current_mouse_action {
@@ -593,6 +763,14 @@ impl View for TerminalView {
                 if clear_selection {
                     self.raw.write().term.selection = None;
                     _cx.app_state_mut().request_paint(self.id);
+                } else if let MouseAction::LeftSelect { .. }
+                | MouseAction::LeftDouble { .. } =
+                    self.current_mouse_action
+                {
+                    // Like other Linux terminals, a selection is ready for middle-click paste.
+                    if let Some(text) = self.raw.read().term.selection_to_string() {
+                        let _ = floem::Clipboard::set_selection(text);
+                    }
                 }
             }
             _ => {}
@@ -793,6 +971,36 @@ impl View for TerminalView {
     }
 }
 
+/// A mouse event for the app at `cell` (column, row from 0), in the encoding
+/// it asked for: SGR, else X10 (UTF-8 coordinates with UTF8_MOUSE).
+fn mouse_report(
+    mode: TermMode,
+    code: u8,
+    cell: (usize, usize),
+    pressed: bool,
+) -> Option<String> {
+    let (col, row) = (cell.0 + 1, cell.1 + 1);
+    if mode.contains(TermMode::SGR_MOUSE) {
+        let end = if pressed { 'M' } else { 'm' };
+        return Some(format!("\x1b[<{code};{col};{row}{end}"));
+    }
+    // shortcut: plain X10 mode drops clicks past column/row 95, since
+    // terminal_write takes a String; upgrade if an app without SGR needs them.
+    if !mode.contains(TermMode::UTF8_MOUSE) && (col > 95 || row > 95) {
+        return None;
+    }
+    // X10 releases don't say which button
+    let code = if pressed { code } else { (code & !3) | 3 };
+    let ch = |v: usize| char::from_u32(32 + v as u32).unwrap_or(' ');
+    Some(format!("\x1b[M{}{}{}", ch(code as usize), ch(col), ch(row)))
+}
+
+/// Alt and Ctrl as the mouse-report encoding adds them to the button code.
+fn modifier_bits(modifiers: Modifiers) -> u8 {
+    (if modifiers.alt() { 8 } else { 0 })
+        + (if modifiers.control() { 16 } else { 0 })
+}
+
 #[derive(Debug, Default, Copy, Clone)]
 enum MouseAction {
     #[default]
@@ -821,4 +1029,34 @@ enum MouseAction {
     RightOnce {
         pos: Point,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_report_encodings() {
+        let sgr = TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE;
+        assert_eq!(mouse_report(sgr, 0, (0, 0), true).unwrap(), "\x1b[<0;1;1M");
+        assert_eq!(
+            mouse_report(sgr, 2, (9, 4), false).unwrap(),
+            "\x1b[<2;10;5m"
+        );
+
+        let x10 = TermMode::MOUSE_REPORT_CLICK;
+        assert_eq!(mouse_report(x10, 0, (2, 3), true).unwrap(), "\x1b[M #$");
+        // a release reports button 3, keeping the modifier bits
+        assert_eq!(
+            mouse_report(x10, 16 + 2, (2, 3), false).unwrap(),
+            "\x1b[M3#$"
+        );
+        assert_eq!(mouse_report(x10, 0, (100, 0), true), None);
+
+        let utf8 = x10 | TermMode::UTF8_MOUSE;
+        assert_eq!(
+            mouse_report(utf8, 0, (100, 0), true).unwrap(),
+            "\x1b[M \u{85}!"
+        );
+    }
 }
