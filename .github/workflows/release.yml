@@ -93,6 +93,9 @@ jobs:
 
   publish:
     needs: [linux, macos]
+    # GitHub sometimes finds no macOS runner and cancels that job; ship the Linux
+    # packages anyway, and a re-run of the macos job adds the dmg to the release.
+    if: ${{ always() && needs.linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,6 +107,8 @@ jobs:
 
       - name: Publish release
         run: |
+          # A missing build (or one whose artifact expired) just isn't uploaded.
+          shopt -s nullglob
           assets=(planck-linux-*/* planck-macos/*)
           prerelease=
           if [ "$RELEASE_TAG_NAME" = nightly ]; then
