@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.8" date="2026-11-17" type="stable">
+            <description>
+                <p>A markdown Rich view that edits in place with live formatting (tables, images, front matter, links, task checkboxes, GitHub alerts), a minimap that replaces the scroll bar with a button to switch between them, and Bash highlighting for shell dotfiles.</p>
+            </description>
+        </release>
         <release version="1.0.7" date="2026-11-16" type="stable">
             <description>
                 <p>Mouse support in the terminal (apps like vim, htop and tmux, middle-click paste, copy on select), error messages in the hover, and space explorer additions: an add-folder button, Open in Terminal, and open folders remembered across restarts.</p>

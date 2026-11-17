@@ -1,5 +1,21 @@
 # Changelog
 
+## Planck 1.0.8 (2026-11-17)
+
+### Features
+- Markdown Rich view: a live-preview editor for markdown files, switched with the button in the tab bar or "Toggle Markdown Rich View". Text is edited in place, and only the cursor's line shows its markdown syntax
+- The Rich view draws headings, lists, quotes, code blocks with syntax highlighting, tables, YAML front matter and images (local files and http(s) links)
+- In the Rich view, Ctrl+click (Cmd+click on macOS) follows links: web and mail links open in the browser, relative files open in Planck, and `#heading` links jump to the heading
+- Clicking a task checkbox in the Rich view ticks or unticks it
+- The Rich view draws strikethrough and GitHub alerts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) with colored bars
+- Code blocks accept short language names like `js`, `py`, `sh` and `ts`
+- The minimap replaces the editor's vertical scroll bar; a button in the tab bar, or "Toggle Minimap", switches between the minimap and the scroll bar
+
+### Bug Fixes
+- Shell dotfiles like `.zshrc`, `.bashrc` and `.profile` are highlighted as Bash instead of plain text
+- SVG images with text render it with the system fonts
+- Line blame, file history and past file versions work in folders opened through a symlink
+
 ## Planck 1.0.7 (2026-11-16)
 
 ### Features
