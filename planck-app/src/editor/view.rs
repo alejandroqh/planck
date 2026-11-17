@@ -1437,13 +1437,7 @@ pub fn editor_container_view(
     });
 
     stack((
-        editor_breadcrumbs(
-            workspace,
-            editor.get_untracked(),
-            config,
-            markdown_rich,
-            is_markdown,
-        ),
+        editor_breadcrumbs(workspace, editor.get_untracked(), config),
         stack((
             editor_gutter(window_tab_data.clone(), editor)
                 .style(move |s| s.apply_if(show_rich.get(), |s| s.hide())),
@@ -1896,8 +1890,6 @@ fn editor_breadcrumbs(
     workspace: Arc<PlanckWorkspace>,
     e_data: EditorData,
     config: ReadSignal<Arc<PlanckConfig>>,
-    markdown_rich: RwSignal<bool>,
-    is_markdown: Memo<bool>,
 ) -> impl View {
     let doc = e_data.doc_signal();
     let doc_path = create_memo(move |_| {
@@ -1909,7 +1901,7 @@ fn editor_breadcrumbs(
             content.path().cloned()
         }
     });
-    stack((
+    container(
         scroll(
             stack((
                 {
@@ -1997,8 +1989,7 @@ fn editor_breadcrumbs(
                 .border_color(config.get().color(PlanckColor::PLANCK_BORDER))
                 .items_center()
         }),
-        markdown_view_switch(markdown_rich, is_markdown, config),
-    ))
+    )
     .style(move |s| {
         let config = config.get_untracked();
         let line_height = config.editor.line_height();
@@ -2009,44 +2000,6 @@ fn editor_breadcrumbs(
             .apply_if(!config.editor.show_bread_crumbs, |s| s.hide())
     })
     .debug_name("Editor BreadCrumbs")
-}
-
-/// Text / Rich switch shown in the path bar of markdown files.
-fn markdown_view_switch(
-    markdown_rich: RwSignal<bool>,
-    is_markdown: Memo<bool>,
-    config: ReadSignal<Arc<PlanckConfig>>,
-) -> impl View {
-    let option = move |name: &'static str, rich: bool| {
-        label(move || name)
-            .on_click_stop(move |_| markdown_rich.set(rich))
-            .style(move |s| {
-                let config = config.get();
-                let selected = markdown_rich.get() == rich;
-                s.padding_horiz(8.0)
-                    .border_radius(4.0)
-                    .selectable(false)
-                    .cursor(CursorStyle::Pointer)
-                    .apply_if(selected, |s| {
-                        s.background(config.color(PlanckColor::PANEL_CURRENT_BACKGROUND))
-                    })
-                    .apply_if(!selected, |s| {
-                        s.color(config.color(PlanckColor::EDITOR_DIM)).hover(|s| {
-                            s.background(
-                                config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
-                            )
-                        })
-                    })
-            })
-    };
-    stack((option("Text", false), option("Rich", true))).style(move |s| {
-        s.absolute()
-            .inset_right(8.0)
-            .height_full()
-            .items_center()
-            .gap(2.0)
-            .apply_if(!is_markdown.get(), |s| s.hide())
-    })
 }
 
 fn editor_content(

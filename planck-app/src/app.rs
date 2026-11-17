@@ -55,6 +55,7 @@ use notify::Watcher;
 use planck_core::{
     command::{EditCommand, FocusCommand},
     directory::Directory,
+    language::PlanckLanguage,
     meta,
     syntax::{Syntax, highlight::reset_highlight_configs},
 };
@@ -678,6 +679,20 @@ fn editor_tab_header(
 
     let editor_tab_active =
         create_memo(move |_| editor_tab.with(|editor_tab| editor_tab.active));
+    // The active tab's editor when it shows a markdown file, for the Rich view toggle.
+    let markdown_editor = create_memo(move |_| {
+        let child =
+            editor_tab.with(|t| t.children.get(t.active).map(|(_, _, c)| c.clone()));
+        let Some(EditorTabChild::Editor(editor_id)) = child else {
+            return None;
+        };
+        let editor = editors.editor(editor_id)?;
+        let is_markdown = editor.doc_signal().with(|doc| {
+            doc.syntax()
+                .with(|s| s.language == PlanckLanguage::Markdown)
+        });
+        is_markdown.then_some(editor)
+    });
     let items = move || {
         let editor_tab = editor_tab.get();
         for (i, (index, _, _)) in editor_tab.children.iter().enumerate() {
@@ -1147,6 +1162,25 @@ fn editor_tab_header(
                         })
                 }),
                 stack((
+                    clickable_icon(
+                        || PlanckIcons::MARKDOWN_PREVIEW,
+                        move || {
+                            if let Some(editor) = markdown_editor.get_untracked() {
+                                editor.markdown_rich.update(|rich| *rich = !*rich);
+                            }
+                        },
+                        move || {
+                            markdown_editor
+                                .with(|e| e.as_ref().is_some_and(|e| e.markdown_rich.get()))
+                        },
+                        || false,
+                        || "Toggle Rich View",
+                        config,
+                    )
+                    .style(move |s| {
+                        s.margin_left(6.0)
+                            .apply_if(markdown_editor.with(|e| e.is_none()), |s| s.hide())
+                    }),
                     clickable_icon(
                         || PlanckIcons::SCM_COMPARE,
                         move || {

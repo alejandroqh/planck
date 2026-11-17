@@ -43,6 +43,7 @@ impl PlanckIcons {
     pub const SCM_CHANGE_ADD: &'static str = "scm.change.add";
     pub const SCM_CHANGE_REMOVE: &'static str = "scm.change.remove";
     pub const SCM_COMPARE: &'static str = "scm.compare";
+    pub const MARKDOWN_PREVIEW: &'static str = "markdown.preview";
 
     pub const FOLD: &'static str = "fold";
     pub const FOLD_UP: &'static str = "fold.up";
