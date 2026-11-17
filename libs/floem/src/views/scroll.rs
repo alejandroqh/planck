@@ -102,6 +102,11 @@ prop!(
 );
 
 prop!(
+    /// Hides only the vertical bar, for views that show their own (like a minimap).
+    pub HideVerticalBar: bool {} = false
+);
+
+prop!(
     /// Determines if pointer wheel events should propagate to parent elements.
     pub PropagatePointerWheel: bool {} = true
 );
@@ -120,6 +125,7 @@ prop_extractor!(ScrollStyle {
     vertical_bar_inset: VerticalInset,
     horizontal_bar_inset: HorizontalInset,
     hide_bar: HideBars,
+    hide_vertical_bar: HideVerticalBar,
     propagate_pointer_wheel: PropagatePointerWheel,
     vertical_scroll_as_horizontal: VerticalScrollAsHorizontal,
     overflow_clip: OverflowClip,
@@ -584,7 +590,9 @@ impl Scroll {
         let content_size = self.child_size;
         let scroll_offset = self.child_viewport.origin().to_vec2();
 
-        if viewport_size.height >= content_size.height - 1. {
+        if viewport_size.height >= content_size.height - 1.
+            || self.scroll_style.hide_vertical_bar()
+        {
             return None;
         }
 
@@ -632,7 +640,9 @@ impl Scroll {
         let length = (percent_visible * self.total_rect.width()).ceil();
         let length = length.max(SCROLLBAR_MIN_SIZE);
 
-        let horizontal_padding = if viewport_size.height >= content_size.height {
+        let horizontal_padding = if viewport_size.height >= content_size.height
+            || self.scroll_style.hide_vertical_bar()
+        {
             0.0
         } else {
             bar_pad + bar_pad + bar_width

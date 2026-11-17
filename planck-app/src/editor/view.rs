@@ -35,7 +35,7 @@ use floem::{
             visual_line::{RVLine, VLine},
         },
         empty, label,
-        scroll::{PropagatePointerWheel, scroll},
+        scroll::{HideVerticalBar, PropagatePointerWheel, scroll},
         stack, svg,
     },
 };
@@ -2015,6 +2015,7 @@ fn editor_content(
         sticky_header_height,
         config,
         editor,
+        kind,
     ) = e_data.with_untracked(|editor| {
         (
             editor.cursor().read_only(),
@@ -2025,6 +2026,7 @@ fn editor_content(
             editor.sticky_header_height,
             editor.common.config,
             editor.editor.clone(),
+            editor.kind,
         )
     });
 
@@ -2145,7 +2147,13 @@ fn editor_content(
             rect
         }
     })
-    .style(|s| s.size_full().set(PropagatePointerWheel, false))
+    .style(move |s| {
+        // The minimap replaces the vertical scroll bar.
+        let minimap = config.get().editor.minimap && kind.get().is_normal();
+        s.size_full()
+            .set(PropagatePointerWheel, false)
+            .set(HideVerticalBar, minimap)
+    })
     .debug_name("Editor Content")
 }
 

@@ -1181,6 +1181,36 @@ fn editor_tab_header(
                         s.margin_left(6.0)
                             .apply_if(markdown_editor.with(|e| e.is_none()), |s| s.hide())
                     }),
+                    // Shows what clicking switches to: the scroll bar or the minimap.
+                    clickable_icon(
+                        move || {
+                            if config.with(|c| c.editor.minimap) {
+                                PlanckIcons::SCROLL_BAR
+                            } else {
+                                PlanckIcons::MINIMAP
+                            }
+                        },
+                        move || workbench_command.send(PlanckWorkbenchCommand::ToggleMinimap),
+                        || false,
+                        || false,
+                        move || {
+                            if config.with(|c| c.editor.minimap) {
+                                "Show Scroll Bar"
+                            } else {
+                                "Show Minimap"
+                            }
+                        },
+                        config,
+                    )
+                    .style(move |s| {
+                        let shows_editor = editor_tab.with(|t| {
+                            matches!(
+                                t.children.get(t.active).map(|(_, _, c)| c),
+                                Some(EditorTabChild::Editor(_))
+                            )
+                        });
+                        s.margin_left(6.0).apply_if(!shows_editor, |s| s.hide())
+                    }),
                     clickable_icon(
                         || PlanckIcons::SCM_COMPARE,
                         move || {

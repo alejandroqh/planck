@@ -47,6 +47,8 @@ name = "Planck Codicons"
 "scm.change.remove" = "remove.svg"
 "scm.compare" = "git-compare.svg"
 "markdown.preview" = "open-preview.svg"
+"minimap" = "layout-sidebar-right.svg"
+"scroll.bar" = "layout-activitybar-right.svg"
 
 "palette.menu" = "chevron-down.svg"
 

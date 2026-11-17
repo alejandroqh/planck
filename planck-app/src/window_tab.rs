@@ -991,6 +991,15 @@ impl WindowTabData {
                     editor.markdown_rich.update(|rich| *rich = !*rich);
                 }
             }
+            ToggleMinimap => {
+                let enabled = self.common.config.get_untracked().editor.minimap;
+                PlanckConfig::update_file(
+                    None,
+                    "editor",
+                    "minimap",
+                    toml_edit::Value::from(!enabled),
+                );
+            }
             ToggleLineBlame => {
                 let enabled =
                     self.common.config.get_untracked().editor.current_line_blame;
