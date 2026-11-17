@@ -1,5 +1,14 @@
 # Changelog
 
+## Planck 1.0.10 (2026-11-17)
+
+### Bug Fixes
+- Help only offers an update once the release has the download for your system, instead of offering one that does nothing when clicked
+- A failed update shows why in a message instead of failing silently
+
+### Changes
+- The macOS app is a universal build: it runs natively on Intel Macs as well as Apple Silicon
+
 ## Planck 1.0.9 (2026-11-17)
 
 ### Features

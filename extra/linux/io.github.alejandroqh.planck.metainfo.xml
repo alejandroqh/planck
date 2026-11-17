@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.10" date="2026-11-17" type="stable">
+            <description>
+                <p>Help only offers an update once its download is ready and shows why an update failed, and the macOS app runs natively on Intel Macs too.</p>
+            </description>
+        </release>
         <release version="1.0.9" date="2026-11-17" type="stable">
             <description>
                 <p>Binary files like GIFs open as a read-only hex view with offsets, hex bytes and ASCII, searchable with Find.</p>
