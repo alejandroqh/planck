@@ -1,5 +1,10 @@
 # Changelog
 
+## Planck 1.0.9 (2026-11-17)
+
+### Features
+- Files that aren't text, like GIFs and other binaries, open as a read-only hex view: the byte offset, 16 bytes in hex and their ASCII (`.` for the rest) per row. Find searches it for text like `GIF` or bytes like `47 49 46`. Files over 4 MB show their first 4 MB
+
 ## Planck 1.0.8 (2026-11-17)
 
 ### Features

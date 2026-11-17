@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.9" date="2026-11-17" type="stable">
+            <description>
+                <p>Binary files like GIFs open as a read-only hex view with offsets, hex bytes and ASCII, searchable with Find.</p>
+            </description>
+        </release>
         <release version="1.0.8" date="2026-11-17" type="stable">
             <description>
                 <p>A markdown Rich view that edits in place with live formatting (tables, images, front matter, links, task checkboxes, GitHub alerts), a minimap that replaces the scroll bar with a button to switch between them, and Bash highlighting for shell dotfiles.</p>
