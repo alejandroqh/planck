@@ -1,5 +1,8 @@
-use floem::text::{
-    Attrs, AttrsList, FamilyOwned, LineHeightValue, Style, TextLayout, Weight,
+use floem::{
+    peniko::Color,
+    text::{
+        Attrs, AttrsList, FamilyOwned, LineHeightValue, Style, TextLayout, Weight,
+    },
 };
 use lapce_xi_rope::Rope;
 use lsp_types::MarkedString;
@@ -286,11 +289,13 @@ pub fn walk_source(
 }
 
 /// Markdown source styled like its rendering (heading sizes, bold, code font),
-/// with the syntax characters dimmed, for editing in the Rich view.
+/// for editing in the Rich view. Syntax characters are dimmed on the `reveal`
+/// line and hidden elsewhere, except list markers and table pipes.
 pub fn style_markdown_source(
     text: &str,
     line_height: f64,
     config: &PlanckConfig,
+    reveal: Option<std::ops::Range<usize>>,
 ) -> AttrsList {
     let code_font_family: Vec<FamilyOwned> =
         FamilyOwned::parse_list(&config.editor.font_family).collect();
@@ -306,7 +311,27 @@ pub fn style_markdown_source(
                 .unwrap_or(attrs)
         });
         match part {
-            SourcePart::Markup => attr_list.add_span(range, attrs.color(dim)),
+            SourcePart::Markup => {
+                let keep = stack.is_empty()
+                    || matches!(stack.last(), Some(Tag::Item))
+                    || stack.iter().any(|t| matches!(t, Tag::Table(_)));
+                let shown = match (&reveal, keep) {
+                    (_, true) => range.clone(),
+                    (Some(line), false) => {
+                        range.start.max(line.start)..range.end.min(line.end)
+                    }
+                    (None, false) => range.start..range.start,
+                };
+                // Hidden syntax: transparent and nearly zero width, so offsets stay intact.
+                let hidden = attrs.clone().color(Color::TRANSPARENT).font_size(0.1);
+                if shown.start < shown.end {
+                    attr_list.add_span(range.start..shown.start, hidden.clone());
+                    attr_list.add_span(shown.clone(), attrs.color(dim));
+                    attr_list.add_span(shown.end..range.end, hidden);
+                } else {
+                    attr_list.add_span(range, hidden);
+                }
+            }
             SourcePart::Code => {
                 attr_list.add_span(range, attrs.family(&code_font_family))
             }

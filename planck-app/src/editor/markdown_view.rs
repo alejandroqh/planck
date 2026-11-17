@@ -3,7 +3,7 @@
 //! markdown so it is edited in place, and keys go to the editor as usual.
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::HashMap,
     ops::Range,
     path::{Path, PathBuf},
@@ -265,7 +265,7 @@ fn linked_text(
     prefix: String,
 ) -> impl View {
     let layout = create_rw_signal(layout);
-    wrapped_text(layout).on_event_stop(EventListener::PointerDown, move |event| {
+    wrapped_text(layout, create_rw_signal(-1.0)).on_event_stop(EventListener::PointerDown, move |event| {
         let Event::PointerDown(pe) = event else { return };
         let Some(rendered) = layout.with_untracked(|l| {
             let hit = hit_offset(l, pe.pos)?;
@@ -561,15 +561,34 @@ fn raw_block(
     } else {
         item.text
     };
-    let layout = create_rw_signal(TextLayout::new_with_text(
-        &shown,
-        style_markdown_source(&shown, RENDERED_LINE_HEIGHT, &config),
-        None,
-    ));
+    let cursor = ed.cursor();
+    // Only the cursor's line shows its markdown syntax; the rest of the block stays rendered.
+    let text = shown.clone();
+    let cursor_line = create_memo(move |_| {
+        let offset = cursor.with(|c| c.offset());
+        let offset = offset.checked_sub(block_start(blocks, index))?.min(len);
+        Some(line_range(&text, offset))
+    });
+    let layout = create_rw_signal(TextLayout::new());
+    let width = create_rw_signal(-1.0);
+    create_effect(move |_| {
+        let styles = style_markdown_source(
+            &shown,
+            RENDERED_LINE_HEIGHT,
+            &config,
+            cursor_line.get(),
+        );
+        let mut new_layout = TextLayout::new_with_text(&shown, styles, None);
+        let width = width.get_untracked();
+        if width > 0.0 {
+            new_layout.set_size(width as f32, f32::MAX);
+        }
+        layout.set(new_layout);
+    });
 
+    let config = ed.common.config.get_untracked();
     let caret_color = config.color(PlanckColor::EDITOR_CARET);
     let selection_color = config.color(PlanckColor::EDITOR_SELECTION);
-    let cursor = ed.cursor();
     let paint = canvas(move |cx, _| {
         let start = blocks.with(|b| b.get(index).map_or(0, |b| b.range.start));
         cursor.with(|c| {
@@ -596,7 +615,7 @@ fn raw_block(
     })
     .style(|s| s.absolute().size_full());
 
-    let view = stack((paint, wrapped_text(layout)));
+    let view = stack((paint, wrapped_text(layout, width)));
     let id = view.id();
     create_effect(move |_| {
         let offset = cursor.with(|c| c.offset());
@@ -669,16 +688,22 @@ fn click(ed: &EditorData, offset: usize, pe: &PointerInputEvent) {
 
 /// A rich_text whose layout copy stays wrapped at the drawn width, so hit
 /// testing and caret placement match what is on screen.
-fn wrapped_text(layout: RwSignal<TextLayout>) -> impl View {
-    let width = Cell::new(-1.0);
+fn wrapped_text(layout: RwSignal<TextLayout>, width: RwSignal<f64>) -> impl View {
     rich_text(move || layout.get())
         .on_resize(move |rect| {
-            if rect.width() != width.get() {
+            if rect.width() != width.get_untracked() {
                 width.set(rect.width());
                 layout.update(|l| l.set_size(rect.width() as f32, f32::MAX));
             }
         })
         .style(|s| s.width_full())
+}
+
+/// The line holding `offset`, without its newline.
+fn line_range(text: &str, offset: usize) -> Range<usize> {
+    let start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    start..end
 }
 
 /// Top-level markdown blocks covering the whole text, so every offset (blank

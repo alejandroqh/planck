@@ -3,6 +3,7 @@
 ## Planck 1.0.7 (2026-11-16)
 
 ### Features
+
 - Terminal mouse support: apps that ask for the mouse (vim, htop, tmux, less) get clicks, drags and the wheel; hold Shift to select text instead
 - The terminal selection follows the drag, is copied to the clipboard, and middle click pastes it (the primary selection on Linux, the clipboard on macOS)
 - Full-screen terminal apps without mouse mode, such as `less` and `man`, scroll with the wheel
