@@ -30,8 +30,8 @@ use floem::{
 use indexmap::IndexMap;
 use itertools::Itertools;
 use lsp_types::{
-    CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
-    ShowMessageParams,
+    CodeActionOrCommand, CodeLens, Diagnostic, MessageType, ProgressParams,
+    ProgressToken, ShowMessageParams,
 };
 use notify::Watcher;
 use planck_core::{
@@ -1420,19 +1420,36 @@ impl WindowTabData {
                     .get_untracked()
                     .as_ref()
                 {
-                    let release = release.clone();
                     let update_in_progress = self.update_in_progress;
+                    let messages = self.messages;
                     if release.version != *meta::VERSION {
                         if let Ok(process_path) = env::current_exe() {
                             update_in_progress.set(true);
                             let send = create_ext_action(
                                 self.common.scope,
-                                move |_started| {
+                                move |result: Result<(), String>| {
                                     update_in_progress.set(false);
+                                    if let Err(message) = result {
+                                        messages.update(|messages| {
+                                            messages.push((
+                                                "Update failed".to_string(),
+                                                ShowMessageParams {
+                                                    typ: MessageType::ERROR,
+                                                    message,
+                                                },
+                                            ));
+                                        });
+                                    }
                                 },
                             );
                             std::thread::Builder::new().name("RestartToUpdate".to_owned()).spawn(move || {
                                 let do_update = || -> anyhow::Result<()> {
+                                    // Ask GitHub again: the copy the menu was built
+                                    // from can be an hour old, from before CI
+                                    // attached this platform's file.
+                                    let release =
+                                        crate::update::get_latest_release()?;
+
                                     let src =
                                         crate::update::download_release(&release)?;
 
@@ -1444,11 +1461,13 @@ impl WindowTabData {
                                     Ok(())
                                 };
 
-                                if let Err(err) = do_update() {
-                                    error!("Failed to update: {err}");
-                                }
-
-                                send(false);
+                                // A successful update relaunches Planck; a failed
+                                // one is shown, not only logged.
+                                let result = do_update().map_err(|err| {
+                                    error!("Failed to update: {err:#}");
+                                    format!("{err:#}")
+                                });
+                                send(result);
                             }).unwrap();
                         }
                     }

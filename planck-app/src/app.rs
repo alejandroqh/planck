@@ -4301,6 +4301,9 @@ pub fn available_update(
         .get()
         .as_ref()
         .as_ref()
+        // Not until CI has attached this platform's file: the hourly check
+        // offers it once it's there.
+        .filter(|r| r.platform_asset().is_some())
         .map(|r| r.version.clone())
         .filter(|v| v != meta::VERSION)
 }

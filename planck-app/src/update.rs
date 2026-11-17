@@ -52,10 +52,18 @@ pub fn get_latest_release() -> Result<ReleaseInfo> {
     Ok(release)
 }
 
-pub fn download_release(release: &ReleaseInfo) -> Result<PathBuf> {
-    let dir =
-        Directory::updates_directory().ok_or_else(|| anyhow!("no directory"))?;
-    let name = match std::env::consts::OS {
+impl ReleaseInfo {
+    /// The file this platform installs. A release can be published before CI has
+    /// attached every build, so it may be missing.
+    pub fn platform_asset(&self) -> Option<&ReleaseAsset> {
+        let name = platform_asset_name().ok()?;
+        self.assets.iter().find(|asset| asset.name == name)
+    }
+}
+
+/// The name of the release file the updater installs on this platform.
+fn platform_asset_name() -> Result<&'static str> {
+    Ok(match std::env::consts::OS {
         "macos" => "Planck-macos.dmg",
         "linux" => match std::env::consts::ARCH {
             "aarch64" => "planck-linux-arm64.tar.gz",
@@ -67,22 +75,25 @@ pub fn download_release(release: &ReleaseInfo) -> Result<PathBuf> {
         #[cfg(not(feature = "portable"))]
         "windows" => "Planck-windows.msi",
         _ => return Err(anyhow!("os not supported")),
-    };
+    })
+}
+
+pub fn download_release(release: &ReleaseInfo) -> Result<PathBuf> {
+    let dir =
+        Directory::updates_directory().ok_or_else(|| anyhow!("no directory"))?;
+    let name = platform_asset_name()?;
+    let asset = release.platform_asset().ok_or_else(|| {
+        anyhow!("{} has no {name} to download yet", release.tag_name)
+    })?;
     let file_path = dir.join(name);
 
-    for asset in &release.assets {
-        if asset.name == name {
-            let mut resp = planck_proxy::get_url(&asset.browser_download_url, None)?;
-            if !resp.status().is_success() {
-                return Err(anyhow!("download file error {}", resp.text()?));
-            }
-            let mut out = std::fs::File::create(&file_path)?;
-            resp.copy_to(&mut out)?;
-            return Ok(file_path);
-        }
+    let mut resp = planck_proxy::get_url(&asset.browser_download_url, None)?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("download file error {}", resp.text()?));
     }
-
-    Err(anyhow!("can't download release"))
+    let mut out = std::fs::File::create(&file_path)?;
+    resp.copy_to(&mut out)?;
+    Ok(file_path)
 }
 
 #[cfg(target_os = "macos")]
@@ -154,20 +165,22 @@ pub fn extract(src: &Path, _process_path: &Path) -> Result<PathBuf> {
 #[cfg(target_os = "macos")]
 pub fn restart(path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    let _ = std::process::Command::new("open")
+    // exec only returns if it failed.
+    let err = std::process::Command::new("open")
         .arg("-n")
         .arg(path)
         .arg("--args")
         .arg("-n")
         .exec();
-    Ok(())
+    Err(anyhow!("can't relaunch Planck: {err}"))
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
 pub fn restart(path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    let _ = std::process::Command::new(path).arg("-n").exec();
-    Ok(())
+    // exec only returns if it failed.
+    let err = std::process::Command::new(path).arg("-n").exec();
+    Err(anyhow!("can't relaunch Planck: {err}"))
 }
 
 #[cfg(all(target_os = "windows", feature = "portable"))]
@@ -230,4 +243,43 @@ pub fn cleanup() {
 ))]
 pub fn cleanup() {
     // Nothing to do yet
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(assets: &[&str]) -> ReleaseInfo {
+        ReleaseInfo {
+            tag_name: "v1.0.9".to_string(),
+            target_commitish: "master".to_string(),
+            assets: assets
+                .iter()
+                .map(|name| ReleaseAsset {
+                    name: name.to_string(),
+                    browser_download_url: format!("https://example.com/{name}"),
+                })
+                .collect(),
+            version: "1.0.9".to_string(),
+        }
+    }
+
+    /// A release published before CI attached this platform's build has nothing to install.
+    #[test]
+    fn platform_asset_needs_this_platforms_file() {
+        let Ok(name) = platform_asset_name() else {
+            return;
+        };
+        let linux_only =
+            release(&["planck_1.0.9-1_amd64.deb", "planck-1.0.9-1.x86_64.rpm"]);
+        assert!(linux_only.platform_asset().is_none());
+
+        let complete = release(&["planck_1.0.9-1_amd64.deb", name]);
+        let asset = complete.platform_asset().unwrap();
+        assert_eq!(asset.name, name);
+        assert_eq!(
+            asset.browser_download_url,
+            format!("https://example.com/{name}")
+        );
+    }
 }
