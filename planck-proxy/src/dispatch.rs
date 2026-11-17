@@ -120,7 +120,10 @@ impl ProxyHandler for Dispatcher {
                             return;
                         }
                         match load_file(&buffer.path) {
-                            Ok(content) => {
+                            // A text file that turned binary keeps its text, so a
+                            // save can't write the hex dump over the file.
+                            Ok((_, true)) if !buffer.read_only => {}
+                            Ok((content, _)) => {
                                 self.core_rpc.open_file_changed(
                                     path,
                                     FileChanged::Change(content),

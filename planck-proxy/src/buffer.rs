@@ -3,7 +3,7 @@ use std::{
     ffi::OsString,
     fs,
     fs::File,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -29,7 +29,8 @@ pub struct Buffer {
 impl Buffer {
     pub fn new(id: BufferId, path: PathBuf) -> Buffer {
         let (s, read_only) = match load_file(&path) {
-            Ok(s) => (s, false),
+            // A hex dump is read-only, so saving can't write it over the file.
+            Ok((s, hex)) => (s, hex),
             Err(err) => {
                 use std::io::ErrorKind;
                 match err.downcast_ref::<std::io::Error>() {
@@ -192,20 +193,56 @@ impl Buffer {
     }
 }
 
-pub fn load_file(path: &Path) -> Result<String> {
-    read_path_to_string(path)
+/// Reads a file as text, or as a hex dump when it isn't text (not UTF-8, or
+/// has NUL bytes like most binaries). The flag is true for a hex dump.
+pub fn load_file(path: &Path) -> Result<(String, bool)> {
+    let bytes = fs::read(path)?;
+    if bytes.contains(&0) {
+        return Ok((hex_dump(&bytes), true));
+    }
+    Ok(match String::from_utf8(bytes) {
+        Ok(text) => (text, false),
+        Err(err) => (hex_dump(err.as_bytes()), true),
+    })
 }
 
-pub fn read_path_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
-    let path = path.as_ref();
+/// Bytes shown in a hex dump; a larger file is cut off with a note.
+const HEX_DUMP_LIMIT: usize = 4 * 1024 * 1024;
 
-    let mut file = File::open(path)?;
-    // Read the file in as bytes
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
+/// One row per 16 bytes: the offset, the bytes in hex, and the printable
+/// ASCII with `.` for the rest, like `hexdump -C`. No gap in the middle of
+/// the hex, so a search for bytes like `00 01` matches anywhere in a row.
+// shortcut: search can't match bytes that span two rows, upgrade to a hex view with its own search if that matters.
+fn hex_dump(bytes: &[u8]) -> String {
+    use std::fmt::Write;
 
-    // Parse the file contents as utf8
-    Ok(String::from_utf8(buffer)?)
+    let shown = &bytes[..bytes.len().min(HEX_DUMP_LIMIT)];
+    let mut out = String::with_capacity(shown.len() / 16 * 78 + 80);
+    for (i, row) in shown.chunks(16).enumerate() {
+        let _ = write!(out, "{:08x}  ", i * 16);
+        for byte in row {
+            let _ = write!(out, "{byte:02x} ");
+        }
+        out.push_str(&"   ".repeat(16 - row.len()));
+        out.push_str(" |");
+        out.extend(row.iter().map(|&b| {
+            if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                '.'
+            }
+        }));
+        out.push_str("|\n");
+    }
+    if bytes.len() > shown.len() {
+        let _ = writeln!(
+            out,
+            "... first {} MB of {} bytes shown",
+            HEX_DUMP_LIMIT >> 20,
+            bytes.len()
+        );
+    }
+    out
 }
 
 pub fn language_id_from_path(path: &Path) -> Option<&'static str> {
@@ -346,4 +383,39 @@ pub fn get_mod_time<P: AsRef<Path>>(path: P) -> Option<SystemTime> {
         .and_then(|f| f.metadata())
         .and_then(|meta| meta.modified())
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_files_load_as_hex_dump() {
+        let dir = std::env::temp_dir()
+            .join(format!("planck-hex-dump-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let text = dir.join("a.txt");
+        fs::write(&text, "héllo\n").unwrap();
+        assert_eq!(load_file(&text).unwrap(), ("héllo\n".to_string(), false));
+
+        let gif = dir.join("a.gif");
+        let mut bytes = b"GIF89a".to_vec();
+        bytes.extend(0u8..=17);
+        fs::write(&gif, &bytes).unwrap();
+        let (dump, hex) = load_file(&gif).unwrap();
+        assert!(hex);
+        assert_eq!(
+            dump,
+            "00000000  47 49 46 38 39 61 00 01 02 03 04 05 06 07 08 09  |GIF89a..........|\n\
+             00000010  0a 0b 0c 0d 0e 0f 10 11                          |........|\n"
+        );
+
+        // Not UTF-8, no NUL bytes.
+        let latin1 = dir.join("b.bin");
+        fs::write(&latin1, [0xe9, b'a']).unwrap();
+        assert!(load_file(&latin1).unwrap().1);
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
