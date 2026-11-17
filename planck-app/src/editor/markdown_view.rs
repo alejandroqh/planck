@@ -2,10 +2,16 @@
 //! editor, drawn as formatted blocks. The block holding the cursor shows its raw
 //! markdown so it is edited in place, and keys go to the editor as usual.
 
-use std::{cell::Cell, ops::Range, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    ops::Range,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use floem::{
-    IntoView, Renderer, View,
+    AnyView, IntoView, Renderer, View,
     context::PaintCx,
     event::{Event, EventListener, EventPropagation},
     peniko::{
@@ -13,15 +19,16 @@ use floem::{
         kurbo::{Point, Rect},
     },
     pointer::{MouseButton, PointerInputEvent},
+    ext_event::create_ext_action,
     reactive::{
-        Memo, RwSignal, SignalGet, SignalUpdate, SignalWith, create_effect,
+        Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, create_effect,
         create_memo, create_rw_signal,
     },
     style::CursorStyle,
-    text::TextLayout,
+    text::{Attrs, AttrsList, LineHeightValue, TextLayout},
     views::{
-        Decorators, canvas, dyn_stack, empty, rich_text, scroll, stack,
-        stack_from_iter,
+        Decorators, canvas, container, dyn_container, dyn_stack, empty, label,
+        rich_text, scroll, stack, stack_from_iter, v_stack_from_iter,
     },
 };
 use planck_core::cursor::CursorMode;
@@ -30,9 +37,10 @@ use pulldown_cmark::{Event as MdEvent, Parser, Tag};
 use super::EditorData;
 use crate::{
     command::InternalCommand,
-    config::color::PlanckColor,
+    config::{PlanckConfig, color::PlanckColor},
     markdown::{
-        MarkdownContent, markdown_options, parse_markdown, style_markdown_source,
+        MarkdownContent, document_options, markdown_options, parse_markdown,
+        style_markdown_source,
     },
     window_tab::Focus,
 };
@@ -44,6 +52,8 @@ const RENDERED_LINE_HEIGHT: f64 = 1.6;
 enum BlockKind {
     Rule,
     Code,
+    Table,
+    FrontMatter,
     Other,
 }
 
@@ -83,6 +93,10 @@ pub fn markdown_rich_view(
         Some(blocks.with(|b| block_at(b, offset)))
     });
 
+    let base_dir = ed
+        .doc()
+        .content
+        .with_untracked(|c| c.path().and_then(|p| p.parent()).map(Path::to_path_buf));
     let ed_ime = ed.clone();
     scroll(
         dyn_stack(
@@ -112,7 +126,13 @@ pub fn markdown_rich_view(
                 if item.raw {
                     raw_block(ed, blocks, item, is_active).into_any()
                 } else {
-                    rendered_block(ed, blocks, item, revealed).into_any()
+                    let ctx = BlockCtx {
+                        ed,
+                        blocks,
+                        index: item.index,
+                        revealed,
+                    };
+                    rendered_block(ctx, item, base_dir.clone()).into_any()
                 }
             },
         )
@@ -157,79 +177,66 @@ fn block_start(blocks: Memo<Vec<Block>>, index: usize) -> usize {
     blocks.with_untracked(|b| b.get(index).map_or(0, |b| b.range.start))
 }
 
-/// A formatted block. Clicking it puts the cursor at the matching spot in the source.
-fn rendered_block(
+/// What a rendered block needs to turn a click into a cursor position.
+#[derive(Clone)]
+struct BlockCtx {
     ed: EditorData,
     blocks: Memo<Vec<Block>>,
-    item: BlockItem,
+    index: usize,
     revealed: RwSignal<bool>,
-) -> impl View {
-    let config = ed.common.config.get_untracked();
-    let source = Arc::new(item.text);
-    let index = item.index;
-    let content = if item.kind == BlockKind::Rule {
-        vec![MarkdownContent::Separator]
-    } else {
-        parse_markdown(&source, RENDERED_LINE_HEIGHT, &config)
+}
+
+impl BlockCtx {
+    /// Places the cursor at `offset` within this block's source.
+    fn click_at(&self, offset: usize, pe: &PointerInputEvent) {
+        self.revealed.set(true);
+        click(&self.ed, block_start(self.blocks, self.index) + offset, pe);
+    }
+}
+
+/// A formatted block. Clicking it puts the cursor at the matching spot in the source.
+fn rendered_block(ctx: BlockCtx, item: BlockItem, base_dir: Option<PathBuf>) -> impl View {
+    let config = ctx.ed.common.config.get_untracked();
+    let source: Arc<str> = Arc::from(item.text.as_str());
+    let body = match item.kind {
+        BlockKind::Table => table_view(&ctx, &source, &config),
+        BlockKind::FrontMatter => front_matter_view(&ctx, &source, &config),
+        BlockKind::Rule => separator(&config),
+        BlockKind::Code | BlockKind::Other => {
+            let mut rendered_before = String::new();
+            let pieces = parse_markdown(&source, RENDERED_LINE_HEIGHT, &config)
+                .into_iter()
+                .map(|piece| match piece {
+                    MarkdownContent::Text(layout) => {
+                        let prefix = rendered_before.clone();
+                        rendered_before.push_str(&rendered_text(&layout));
+                        rendered_before.push('\n');
+                        linked_text(ctx.clone(), layout, source.clone(), 0, prefix)
+                            .into_any()
+                    }
+                    MarkdownContent::Separator => separator(&config),
+                    MarkdownContent::Image { url, .. } => {
+                        image_view(url, base_dir.clone(), &config)
+                    }
+                })
+                .collect::<Vec<_>>();
+            stack_from_iter(pieces)
+                .style(|s| s.flex_col().width_full())
+                .into_any()
+        }
     };
 
-    let border = config.color(PlanckColor::PLANCK_BORDER);
-    let mut rendered_before = String::new();
-    let mut pieces = Vec::new();
-    for piece in content {
-        let view = match piece {
-            MarkdownContent::Text(layout) => {
-                let prefix = rendered_before.clone();
-                rendered_before.push_str(&rendered_text(&layout));
-                rendered_before.push('\n');
-                let layout = create_rw_signal(layout);
-                let ed = ed.clone();
-                let source = source.clone();
-                wrapped_text(layout)
-                    .on_event_stop(EventListener::PointerDown, move |event| {
-                        let Event::PointerDown(pe) = event else { return };
-                        let Some(hit) = layout.with_untracked(|l| {
-                            let hit = hit_offset(l, pe.pos)?;
-                            let rendered = rendered_text(l);
-                            let before = rendered.get(..hit).unwrap_or(&rendered);
-                            Some(format!("{prefix}{before}"))
-                        }) else {
-                            return;
-                        };
-                        let offset = block_start(blocks, index)
-                            + source_offset(&source, &hit);
-                        revealed.set(true);
-                        click(&ed, offset, pe);
-                    })
-                    .into_any()
-            }
-            MarkdownContent::Separator => empty()
-                .style(move |s| {
-                    s.width_full()
-                        .margin_vert(8.0)
-                        .height(1.0)
-                        .background(border)
-                })
-                .into_any(),
-            // shortcut: images are not drawn yet, load them from the path or URL when asked for.
-            MarkdownContent::Image { .. } => empty().into_any(),
-        };
-        pieces.push(view);
-    }
     let line_height = config.editor.line_height() as f32;
     let code_background = config.color(PlanckColor::EDITOR_CURRENT_LINE);
     let is_code = item.kind == BlockKind::Code;
-
-    stack_from_iter(pieces)
+    container(body)
         .on_event_stop(EventListener::PointerDown, move |event| {
             if let Event::PointerDown(pe) = event {
-                revealed.set(true);
-                click(&ed, block_start(blocks, index), pe);
+                ctx.click_at(0, pe);
             }
         })
         .style(move |s| {
-            s.flex_col()
-                .width_full()
+            s.width_full()
                 .min_height(line_height)
                 .padding_vert(4.0)
                 .apply_if(is_code, |s| {
@@ -239,6 +246,301 @@ fn rendered_block(
                         .background(code_background)
                 })
         })
+}
+
+fn separator(config: &PlanckConfig) -> AnyView {
+    let border = config.color(PlanckColor::PLANCK_BORDER);
+    empty()
+        .style(move |s| s.width_full().margin_vert(8.0).height(1.0).background(border))
+        .into_any()
+}
+
+/// Rendered text from `source[base..]`: a click maps back into the source.
+/// `prefix` is the rendered text drawn before this layout from the same source.
+fn linked_text(
+    ctx: BlockCtx,
+    layout: TextLayout,
+    source: Arc<str>,
+    base: usize,
+    prefix: String,
+) -> impl View {
+    let layout = create_rw_signal(layout);
+    wrapped_text(layout).on_event_stop(EventListener::PointerDown, move |event| {
+        let Event::PointerDown(pe) = event else { return };
+        let Some(rendered) = layout.with_untracked(|l| {
+            let hit = hit_offset(l, pe.pos)?;
+            let rendered = rendered_text(l);
+            let before = rendered.get(..hit).unwrap_or(&rendered);
+            Some(format!("{prefix}{before}"))
+        }) else {
+            return;
+        };
+        ctx.click_at(base + source_offset(&source, &rendered), pe);
+    })
+}
+
+/// One grid cell for tables and front matter; columns share the width by `weight`.
+fn grid_cell(
+    content: impl IntoView + 'static,
+    weight: f32,
+    header: bool,
+    config: &PlanckConfig,
+    on_click: impl Fn(&PointerInputEvent) + 'static,
+) -> AnyView {
+    let border = config.color(PlanckColor::PLANCK_BORDER);
+    let header_background = config.color(PlanckColor::EDITOR_CURRENT_LINE);
+    container(content)
+        .on_event_stop(EventListener::PointerDown, move |event| {
+            if let Event::PointerDown(pe) = event {
+                on_click(pe);
+            }
+        })
+        .style(move |s| {
+            s.flex_basis(0)
+                .flex_grow(weight)
+                .min_width(0)
+                .padding_horiz(8.0)
+                .padding_vert(2.0)
+                .border_right(1.0)
+                .border_bottom(1.0)
+                .border_color(border)
+                .apply_if(header, |s| s.background(header_background))
+        })
+        .into_any()
+}
+
+fn grid(rows: Vec<AnyView>, config: &PlanckConfig) -> AnyView {
+    let border = config.color(PlanckColor::PLANCK_BORDER);
+    v_stack_from_iter(rows)
+        .style(move |s| {
+            s.width_full()
+                .margin_vert(4.0)
+                .border_left(1.0)
+                .border_top(1.0)
+                .border_color(border)
+        })
+        .into_any()
+}
+
+/// Column weight from the longest cell, so short columns stay narrow.
+fn column_weight(lengths: impl Iterator<Item = usize>) -> f32 {
+    lengths.max().unwrap_or(0).clamp(3, 40) as f32
+}
+
+fn table_view(ctx: &BlockCtx, source: &Arc<str>, config: &PlanckConfig) -> AnyView {
+    let rows = table_rows(source);
+    let columns = rows.iter().map(|(_, cells)| cells.len()).max().unwrap_or(0);
+    let weights: Vec<f32> = (0..columns)
+        .map(|c| {
+            column_weight(
+                rows.iter()
+                    .filter_map(|(_, cells)| cells.get(c))
+                    .map(|r| source[r.clone()].chars().count()),
+            )
+        })
+        .collect();
+    // shortcut: column alignment (:---:) is ignored, cells are left-aligned.
+    let rows = rows
+        .into_iter()
+        .map(|(header, cells)| {
+            let row = (0..columns).map(|c| {
+                let range = cells.get(c).cloned().unwrap_or(0..0);
+                let text = &source[range.clone()];
+                let markdown = if header && !text.is_empty() {
+                    format!("**{text}**")
+                } else {
+                    text.to_string()
+                };
+                let cell_source: Arc<str> = Arc::from(text);
+                let mut rendered_before = String::new();
+                let lines = parse_markdown(&markdown, RENDERED_LINE_HEIGHT, config)
+                    .into_iter()
+                    .filter_map(|piece| match piece {
+                        MarkdownContent::Text(layout) => {
+                            let prefix = rendered_before.clone();
+                            rendered_before.push_str(&rendered_text(&layout));
+                            Some(linked_text(
+                                ctx.clone(),
+                                layout,
+                                cell_source.clone(),
+                                range.start,
+                                prefix,
+                            ))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let ctx = ctx.clone();
+                grid_cell(
+                    v_stack_from_iter(lines).style(|s| s.width_full()),
+                    weights[c],
+                    header,
+                    config,
+                    move |pe| ctx.click_at(range.start, pe),
+                )
+            });
+            stack_from_iter(row).style(|s| s.width_full()).into_any()
+        })
+        .collect();
+    grid(rows, config)
+}
+
+fn front_matter_view(
+    ctx: &BlockCtx,
+    source: &Arc<str>,
+    config: &PlanckConfig,
+) -> AnyView {
+    let rows = front_matter_rows(source);
+    let key_weight = column_weight(rows.iter().map(|(k, _)| k.len()));
+    let value_weight = column_weight(rows.iter().map(|(_, v)| v.len())).max(key_weight * 2.0);
+    let dim = config.color(PlanckColor::EDITOR_DIM);
+    let foreground = config.color(PlanckColor::EDITOR_FOREGROUND);
+    let attrs = Attrs::new()
+        .font_size(config.ui.font_size() as f32)
+        .line_height(LineHeightValue::Normal(RENDERED_LINE_HEIGHT as f32));
+    let cell = |range: Range<usize>, color: Color, weight: f32| {
+        let layout = TextLayout::new_with_text(
+            &source[range.clone()],
+            AttrsList::new(attrs.clone().color(color)),
+            None,
+        );
+        let text = linked_text(ctx.clone(), layout, Arc::from(&source[range.clone()]), range.start, String::new());
+        let ctx = ctx.clone();
+        grid_cell(text, weight, false, config, move |pe| ctx.click_at(range.start, pe))
+    };
+    let rows = rows
+        .into_iter()
+        .map(|(key, value)| {
+            stack((cell(key, dim, key_weight), cell(value, foreground, value_weight)))
+                .style(|s| s.width_full())
+                .into_any()
+        })
+        .collect();
+    grid(rows, config)
+}
+
+thread_local! {
+    /// Remote images by URL, fetched once per run.
+    static REMOTE_IMAGES: RefCell<HashMap<String, Option<Arc<Vec<u8>>>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// An image from a local path (relative to the markdown file) or an http(s) URL.
+fn image_view(url: String, base_dir: Option<PathBuf>, config: &PlanckConfig) -> AnyView {
+    // None while loading, Some(None) when it could not be read.
+    let data: RwSignal<Option<Option<Arc<Vec<u8>>>>> = create_rw_signal(None);
+    if url.starts_with("http://") || url.starts_with("https://") {
+        match REMOTE_IMAGES.with(|c| c.borrow().get(&url).cloned()) {
+            Some(cached) => data.set(Some(cached)),
+            None => {
+                let key = url.clone();
+                let send = create_ext_action(Scope::current(), move |bytes: Option<Vec<u8>>| {
+                    let bytes = bytes.map(Arc::new);
+                    REMOTE_IMAGES.with(|c| c.borrow_mut().insert(key, bytes.clone()));
+                    data.try_update(|d| *d = Some(bytes));
+                });
+                let url = url.clone();
+                std::thread::spawn(move || send(fetch_image(&url)));
+            }
+        }
+    } else {
+        let path = url.strip_prefix("file://").unwrap_or(&url);
+        let path = Path::new(path.split(['#', '?']).next().unwrap_or(path));
+        let path = if path.is_relative() {
+            base_dir.map(|dir| dir.join(path))
+        } else {
+            Some(path.to_path_buf())
+        };
+        data.set(Some(path.and_then(|p| std::fs::read(p).ok()).map(Arc::new)));
+    }
+
+    let width = create_rw_signal(0.0);
+    let dim = config.color(PlanckColor::EDITOR_DIM);
+    dyn_container(
+        move || data.get(),
+        move |state| match state {
+            None => empty().into_any(),
+            Some(Some(bytes)) => {
+                sized_image(bytes, width).unwrap_or_else(|| missing_image(&url, dim))
+            }
+            Some(None) => missing_image(&url, dim),
+        },
+    )
+    .on_resize(move |rect| {
+        if rect.width() != width.get_untracked() {
+            width.set(rect.width());
+        }
+    })
+    .style(|s| s.width_full())
+    .into_any()
+}
+
+fn missing_image(url: &str, color: Color) -> AnyView {
+    let text = format!("[image: {url}]");
+    label(move || text.clone())
+        .style(move |s| s.color(color))
+        .into_any()
+}
+
+fn fetch_image(url: &str) -> Option<Vec<u8>> {
+    let user_agent = format!("Planck/{}", planck_core::meta::VERSION);
+    let response = planck_proxy::get_url(url, Some(user_agent.as_str())).ok()?;
+    let bytes = response.error_for_status().ok()?.bytes().ok()?;
+    // Big downloads are not worth holding for a preview.
+    (bytes.len() <= 20 << 20).then(|| bytes.to_vec())
+}
+
+/// The image at its natural size, shrunk to fit `width` with its proportions kept.
+fn sized_image(bytes: Arc<Vec<u8>>, width: RwSignal<f64>) -> Option<AnyView> {
+    let svg_text = std::str::from_utf8(&bytes)
+        .ok()
+        .filter(|t| t.contains("<svg"))
+        .map(str::to_string);
+    let (w, h) = match &svg_text {
+        Some(text) => svg_size(text)?,
+        None => {
+            let (w, h) = image::io::Reader::new(std::io::Cursor::new(&bytes[..]))
+                .with_guessed_format()
+                .ok()?
+                .into_dimensions()
+                .ok()?;
+            (w as f64, h as f64)
+        }
+    };
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let fit = move |s: floem::style::Style| {
+        let available = width.get();
+        let shown = if available > 0.0 { w.min(available) } else { w };
+        s.width(shown).height(shown * h / w)
+    };
+    Some(match svg_text {
+        Some(text) => floem::views::svg(move || text.clone()).style(fit).into_any(),
+        None => floem::views::img(move || bytes.to_vec()).style(fit).into_any(),
+    })
+}
+
+/// Width and height of an SVG from its root tag (width/height, else viewBox).
+fn svg_size(svg: &str) -> Option<(f64, f64)> {
+    let start = svg.find("<svg")?;
+    let tag = &svg[start..start + svg[start..].find('>')?];
+    let attr = |name: &str| {
+        let re = regex::Regex::new(&format!(r#"\s{name}\s*=\s*["']([^"']*)["']"#)).ok()?;
+        Some(re.captures(tag)?.get(1)?.as_str().to_string())
+    };
+    let number = |v: String| v.trim().trim_end_matches("px").parse::<f64>().ok();
+    if let (Some(w), Some(h)) = (attr("width").and_then(number), attr("height").and_then(number)) {
+        return Some((w, h));
+    }
+    let view_box: Vec<f64> = attr("viewBox")?
+        .split([' ', ','])
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    match view_box[..] {
+        [_, _, w, h] => Some((w, h)),
+        _ => None,
+    }
 }
 
 /// The block holding the cursor, shown as its markdown source with caret and selection.
@@ -383,16 +685,30 @@ fn wrapped_text(layout: RwSignal<TextLayout>) -> impl View {
 /// lines included) belongs to exactly one block.
 fn split_blocks(text: &str) -> Vec<Block> {
     let mut starts: Vec<(usize, BlockKind)> = Vec::new();
+    // Front matter only counts at the top of the file; pulldown-cmark would
+    // also take a `---` / `key: value` / `---` run further down.
+    let body = Parser::new_ext(text, document_options())
+        .into_offset_iter()
+        .next()
+        .and_then(|(event, range)| {
+            matches!(event, MdEvent::Start(Tag::MetadataBlock(_))).then_some(range.end)
+        })
+        .unwrap_or(0);
+    if body > 0 {
+        starts.push((0, BlockKind::FrontMatter));
+    }
     let mut depth = 0usize;
-    for (event, range) in Parser::new_ext(text, markdown_options()).into_offset_iter()
+    for (event, range) in
+        Parser::new_ext(&text[body..], markdown_options()).into_offset_iter()
     {
+        let range = range.start + body..range.end + body;
         match event {
             MdEvent::Start(tag) => {
                 if depth == 0 {
-                    let kind = if matches!(tag, Tag::CodeBlock(_)) {
-                        BlockKind::Code
-                    } else {
-                        BlockKind::Other
+                    let kind = match tag {
+                        Tag::CodeBlock(_) => BlockKind::Code,
+                        Tag::Table(_) => BlockKind::Table,
+                        _ => BlockKind::Other,
                     };
                     starts.push((range.start, kind));
                 }
@@ -421,6 +737,64 @@ fn split_blocks(text: &str) -> Vec<Block> {
         });
     }
     blocks
+}
+
+/// Table rows (header first) with each cell's text range, pipes and padding trimmed.
+fn table_rows(text: &str) -> Vec<(bool, Vec<Range<usize>>)> {
+    let mut rows: Vec<(bool, Vec<Range<usize>>)> = Vec::new();
+    for (event, range) in Parser::new_ext(text, markdown_options()).into_offset_iter() {
+        match event {
+            MdEvent::Start(Tag::TableHead) => rows.push((true, Vec::new())),
+            MdEvent::Start(Tag::TableRow) => rows.push((false, Vec::new())),
+            MdEvent::Start(Tag::TableCell) => {
+                if let Some((_, cells)) = rows.last_mut() {
+                    let cell = &text[range.clone()];
+                    let pad = |c: char| c.is_whitespace() || c == '|';
+                    let start = range.start + cell.len() - cell.trim_start_matches(pad).len();
+                    let end = range.end - (cell.len() - cell.trim_end_matches(pad).len());
+                    cells.push(start..end.max(start));
+                }
+            }
+            _ => {}
+        }
+    }
+    rows
+}
+
+/// `key: value` rows of a YAML front matter block. Indented lines continue the
+/// value above, keeping their source spelling.
+fn front_matter_rows(text: &str) -> Vec<(Range<usize>, Range<usize>)> {
+    let mut rows: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+    let mut offset = 0;
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        let start = offset;
+        offset += line.len();
+        let content = line.trim_end_matches(['\n', '\r']);
+        if i == 0 {
+            continue;
+        }
+        if content == "---" || content == "..." {
+            break;
+        }
+        let end = start + content.len();
+        match content.find(':') {
+            Some(colon) if !content.starts_with([' ', '\t', '-', '#']) => {
+                let value = &content[colon + 1..];
+                let value_start = end - value.trim_start().len();
+                rows.push((start..start + content[..colon].trim_end().len(), value_start..end));
+            }
+            _ if !content.trim().is_empty() => {
+                if let Some((_, value)) = rows.last_mut() {
+                    if value.start == value.end {
+                        value.start = start;
+                    }
+                    value.end = end;
+                }
+            }
+            _ => {}
+        }
+    }
+    rows
 }
 
 fn block_at(blocks: &[Block], offset: usize) -> usize {
@@ -559,6 +933,42 @@ mod tests {
         assert_eq!(&text[blocks[1].range.clone()], "Some *text*\nmore\n\n");
         assert_eq!(block_at(&blocks, text.len()), blocks.len() - 1);
         assert_eq!(split_blocks("").len(), 1);
+    }
+
+    #[test]
+    fn tables_and_front_matter_are_blocks() {
+        let text = "---\ntitle: Notes\ntags:\n  - a\n  - b\n---\n# H\n\n| a | **b** |\n|---|:-:|\n| 1 |\n";
+        let kinds: Vec<_> = split_blocks(text).iter().map(|b| b.kind).collect();
+        assert_eq!(kinds, [BlockKind::FrontMatter, BlockKind::Other, BlockKind::Table]);
+
+        let fm = &text[split_blocks(text)[0].range.clone()];
+        let rows: Vec<_> = front_matter_rows(fm)
+            .into_iter()
+            .map(|(k, v)| (&fm[k], &fm[v]))
+            .collect();
+        assert_eq!(rows, [("title", "Notes"), ("tags", "  - a\n  - b")]);
+
+        let table = &text[split_blocks(text)[2].range.clone()];
+        let cells: Vec<Vec<&str>> = table_rows(table)
+            .into_iter()
+            .map(|(_, cells)| cells.into_iter().map(|r| &table[r]).collect())
+            .collect();
+        assert_eq!(cells, [vec!["a", "**b**"], vec!["1", ""]]);
+
+        // A rule and key line later in the file are not front matter.
+        let kinds: Vec<_> = split_blocks("text\n\n---\nfoo: bar\n---\n")
+            .iter()
+            .map(|b| b.kind)
+            .collect();
+        assert!(!kinds.contains(&BlockKind::FrontMatter), "{kinds:?}");
+    }
+
+    #[test]
+    fn svg_sizes() {
+        assert_eq!(svg_size(r#"<svg xmlns="x" width="78" height="20">"#), Some((78.0, 20.0)));
+        assert_eq!(svg_size(r#"<?xml?><svg viewBox="0 0 24 12" >"#), Some((24.0, 12.0)));
+        assert_eq!(svg_size(r#"<svg width="10px" height='5'>"#), Some((10.0, 5.0)));
+        assert_eq!(svg_size("<svg>"), None);
     }
 
     #[test]

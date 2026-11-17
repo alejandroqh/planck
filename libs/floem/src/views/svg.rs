@@ -166,14 +166,15 @@ impl View for Svg {
                 }
             };
 
-            self.svg_tree = Tree::from_str(
-                text,
-                &usvg::Options {
-                    style_sheet: style,
-                    ..Default::default()
-                },
-            )
-            .ok();
+            let mut options = usvg::Options {
+                style_sheet: style,
+                ..Default::default()
+            };
+            // Icons have no text, so system fonts load only for SVGs that draw some (badges, diagrams).
+            if text.contains("<text") {
+                options.fontdb = system_fonts();
+            }
+            self.svg_tree = Tree::from_str(text, &options).ok();
 
             let mut hasher = Sha256::new();
             hasher.update(text);
@@ -263,4 +264,16 @@ fn calculate_angle(start: &Point, end: &Point) -> f64 {
     }
 
     angle_deg
+}
+
+fn system_fonts() -> std::sync::Arc<usvg::fontdb::Database> {
+    static FONTS: std::sync::OnceLock<std::sync::Arc<usvg::fontdb::Database>> =
+        std::sync::OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            let mut db = usvg::fontdb::Database::new();
+            db.load_system_fonts();
+            std::sync::Arc::new(db)
+        })
+        .clone()
 }

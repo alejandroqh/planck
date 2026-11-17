@@ -253,7 +253,7 @@ pub fn walk_source(
         }
         *pos = (*pos).max(range.end);
     };
-    for (event, range) in Parser::new_ext(text, markdown_options()).into_offset_iter()
+    for (event, range) in Parser::new_ext(text, document_options()).into_offset_iter()
     {
         match event {
             Event::Start(tag) => {
@@ -338,6 +338,12 @@ pub fn markdown_options() -> Options {
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_HEADING_ATTRIBUTES
+}
+
+/// Options for whole markdown files, which can start with YAML front matter.
+/// Hover text from language servers is parsed without it.
+pub fn document_options() -> Options {
+    markdown_options() | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
 }
 
 fn attribute_for_tag<'a>(
