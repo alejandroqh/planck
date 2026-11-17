@@ -68,7 +68,8 @@ pub fn parse_markdown(
                 match &tag {
                     Tag::List(start) => lists.push(*start),
                     Tag::Item => {
-                        if !current_text.is_empty() && !current_text.ends_with('\n') {
+                        if !current_text.is_empty() && !current_text.ends_with('\n')
+                        {
                             current_text.push('\n');
                             pos += 1;
                         }
@@ -258,7 +259,8 @@ pub fn walk_source(
         }
         *pos = (*pos).max(range.end);
     };
-    for (event, range) in Parser::new_ext(text, document_options()).into_offset_iter()
+    for (event, range) in
+        Parser::new_ext(text, document_options()).into_offset_iter()
     {
         match event {
             Event::Start(tag) => {
@@ -279,7 +281,12 @@ pub fn walk_source(
                 let lead = code.len() - code.trim_start_matches('`').len();
                 let trail = code.len() - code.trim_end_matches('`').len();
                 let inner = range.start + lead..range.end - trail;
-                part(range.start..inner.start, &stack, SourcePart::Markup, &mut pos);
+                part(
+                    range.start..inner.start,
+                    &stack,
+                    SourcePart::Markup,
+                    &mut pos,
+                );
                 part(inner, &stack, SourcePart::Code, &mut pos);
                 part(pos..range.end, &stack, SourcePart::Markup, &mut pos);
             }
@@ -553,7 +560,10 @@ mod tests {
     #[test]
     fn markdown_syntax_is_found() {
         assert_eq!(markup("## Title\n"), ["##"]);
-        assert_eq!(markup("a **b** `c` [d](e)\n"), ["**", "**", "`", "`", "[", "](e)"]);
+        assert_eq!(
+            markup("a **b** `c` [d](e)\n"),
+            ["**", "**", "`", "`", "[", "](e)"]
+        );
         assert_eq!(markup("```rs\nfn x() {}\n```\n"), ["```rs", "```"]);
         assert_eq!(markup("- one\n"), ["-"]);
     }

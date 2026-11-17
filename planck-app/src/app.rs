@@ -1170,8 +1170,9 @@ fn editor_tab_header(
                             }
                         },
                         move || {
-                            markdown_editor
-                                .with(|e| e.as_ref().is_some_and(|e| e.markdown_rich.get()))
+                            markdown_editor.with(|e| {
+                                e.as_ref().is_some_and(|e| e.markdown_rich.get())
+                            })
                         },
                         || false,
                         || "Toggle Rich View",
@@ -1179,7 +1180,9 @@ fn editor_tab_header(
                     )
                     .style(move |s| {
                         s.margin_left(6.0)
-                            .apply_if(markdown_editor.with(|e| e.is_none()), |s| s.hide())
+                            .apply_if(markdown_editor.with(|e| e.is_none()), |s| {
+                                s.hide()
+                            })
                     }),
                     // Shows what clicking switches to: the scroll bar or the minimap.
                     clickable_icon(
@@ -1190,7 +1193,10 @@ fn editor_tab_header(
                                 PlanckIcons::MINIMAP
                             }
                         },
-                        move || workbench_command.send(PlanckWorkbenchCommand::ToggleMinimap),
+                        move || {
+                            workbench_command
+                                .send(PlanckWorkbenchCommand::ToggleMinimap)
+                        },
                         || false,
                         || false,
                         move || {

@@ -590,8 +590,7 @@ impl Scroll {
         let content_size = self.child_size;
         let scroll_offset = self.child_viewport.origin().to_vec2();
 
-        if viewport_size.height >= content_size.height - 1.
-            || self.scroll_style.hide_vertical_bar()
+        if viewport_size.height >= content_size.height - 1. || self.scroll_style.hide_vertical_bar()
         {
             return None;
         }

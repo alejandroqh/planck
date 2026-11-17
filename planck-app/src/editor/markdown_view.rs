@@ -14,12 +14,12 @@ use floem::{
     AnyView, IntoView, Renderer, View,
     context::PaintCx,
     event::{Event, EventListener, EventPropagation},
+    ext_event::create_ext_action,
     peniko::{
         Color,
         kurbo::{Point, Rect},
     },
     pointer::{MouseButton, PointerInputEvent},
-    ext_event::create_ext_action,
     reactive::{
         Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, create_effect,
         create_memo, create_rw_signal,
@@ -95,10 +95,9 @@ pub fn markdown_rich_view(
         Some(blocks.with(|b| block_at(b, offset)))
     });
 
-    let base_dir = ed
-        .doc()
-        .content
-        .with_untracked(|c| c.path().and_then(|p| p.parent()).map(Path::to_path_buf));
+    let base_dir = ed.doc().content.with_untracked(|c| {
+        c.path().and_then(|p| p.parent()).map(Path::to_path_buf)
+    });
     let ed_ime = ed.clone();
     scroll(
         dyn_stack(
@@ -201,7 +200,11 @@ impl BlockCtx {
 }
 
 /// A formatted block. Clicking it puts the cursor at the matching spot in the source.
-fn rendered_block(ctx: BlockCtx, item: BlockItem, base_dir: Option<PathBuf>) -> impl View {
+fn rendered_block(
+    ctx: BlockCtx,
+    item: BlockItem,
+    base_dir: Option<PathBuf>,
+) -> impl View {
     let config = ctx.ed.common.config.get_untracked();
     let source: Arc<str> = Arc::from(item.text.as_str());
     let body = match item.kind {
@@ -267,7 +270,9 @@ fn quote_style(
         None => return (config.color(PlanckColor::MARKDOWN_BLOCKQUOTE), None),
         Some(BlockQuoteKind::Note) => (PlanckColor::TERMINAL_BLUE, "Note"),
         Some(BlockQuoteKind::Tip) => (PlanckColor::TERMINAL_GREEN, "Tip"),
-        Some(BlockQuoteKind::Important) => (PlanckColor::TERMINAL_MAGENTA, "Important"),
+        Some(BlockQuoteKind::Important) => {
+            (PlanckColor::TERMINAL_MAGENTA, "Important")
+        }
         Some(BlockQuoteKind::Warning) => (PlanckColor::TERMINAL_YELLOW, "Warning"),
         Some(BlockQuoteKind::Caution) => (PlanckColor::TERMINAL_RED, "Caution"),
     };
@@ -301,7 +306,12 @@ fn quote_view(
 fn separator(config: &PlanckConfig) -> AnyView {
     let border = config.color(PlanckColor::PLANCK_BORDER);
     empty()
-        .style(move |s| s.width_full().margin_vert(8.0).height(1.0).background(border))
+        .style(move |s| {
+            s.width_full()
+                .margin_vert(8.0)
+                .height(1.0)
+                .background(border)
+        })
         .into_any()
 }
 
@@ -315,24 +325,29 @@ fn linked_text(
     prefix: String,
 ) -> impl View {
     let layout = create_rw_signal(layout);
-    wrapped_text(layout, create_rw_signal(-1.0)).on_event_stop(EventListener::PointerDown, move |event| {
-        let Event::PointerDown(pe) = event else { return };
-        let Some((before, after)) = layout.with_untracked(|l| {
-            let hit = hit_offset(l, pe.pos)?;
-            let rendered = rendered_text(l);
-            let (before, after) = rendered.split_at_checked(hit)?;
-            Some((format!("{prefix}{before}"), after.to_string()))
-        }) else {
-            return;
-        };
-        if pe.button.mouse_button() == MouseButton::Primary
-            && let Some(task) = clicked_task(&before, &after)
-        {
-            toggle_task(&ctx, &source, base, task);
-            return;
-        }
-        ctx.click_at(base + source_offset(&source, &before), pe);
-    })
+    wrapped_text(layout, create_rw_signal(-1.0)).on_event_stop(
+        EventListener::PointerDown,
+        move |event| {
+            let Event::PointerDown(pe) = event else {
+                return;
+            };
+            let Some((before, after)) = layout.with_untracked(|l| {
+                let hit = hit_offset(l, pe.pos)?;
+                let rendered = rendered_text(l);
+                let (before, after) = rendered.split_at_checked(hit)?;
+                Some((format!("{prefix}{before}"), after.to_string()))
+            }) else {
+                return;
+            };
+            if pe.button.mouse_button() == MouseButton::Primary
+                && let Some(task) = clicked_task(&before, &after)
+            {
+                toggle_task(&ctx, &source, base, task);
+                return;
+            }
+            ctx.click_at(base + source_offset(&source, &before), pe);
+        },
+    )
 }
 
 /// One grid cell for tables and front matter; columns share the width by `weight`.
@@ -448,7 +463,8 @@ fn front_matter_view(
 ) -> AnyView {
     let rows = front_matter_rows(source);
     let key_weight = column_weight(rows.iter().map(|(k, _)| k.len()));
-    let value_weight = column_weight(rows.iter().map(|(_, v)| v.len())).max(key_weight * 2.0);
+    let value_weight =
+        column_weight(rows.iter().map(|(_, v)| v.len())).max(key_weight * 2.0);
     let dim = config.color(PlanckColor::EDITOR_DIM);
     let foreground = config.color(PlanckColor::EDITOR_FOREGROUND);
     let attrs = Attrs::new()
@@ -460,16 +476,27 @@ fn front_matter_view(
             AttrsList::new(attrs.clone().color(color)),
             None,
         );
-        let text = linked_text(ctx.clone(), layout, Arc::from(&source[range.clone()]), range.start, String::new());
+        let text = linked_text(
+            ctx.clone(),
+            layout,
+            Arc::from(&source[range.clone()]),
+            range.start,
+            String::new(),
+        );
         let ctx = ctx.clone();
-        grid_cell(text, weight, false, config, move |pe| ctx.click_at(range.start, pe))
+        grid_cell(text, weight, false, config, move |pe| {
+            ctx.click_at(range.start, pe)
+        })
     };
     let rows = rows
         .into_iter()
         .map(|(key, value)| {
-            stack((cell(key, dim, key_weight), cell(value, foreground, value_weight)))
-                .style(|s| s.width_full())
-                .into_any()
+            stack((
+                cell(key, dim, key_weight),
+                cell(value, foreground, value_weight),
+            ))
+            .style(|s| s.width_full())
+            .into_any()
         })
         .collect();
     grid(rows, config)
@@ -482,7 +509,11 @@ thread_local! {
 }
 
 /// An image from a local path (relative to the markdown file) or an http(s) URL.
-fn image_view(url: String, base_dir: Option<PathBuf>, config: &PlanckConfig) -> AnyView {
+fn image_view(
+    url: String,
+    base_dir: Option<PathBuf>,
+    config: &PlanckConfig,
+) -> AnyView {
     // None while loading, Some(None) when it could not be read.
     let data: RwSignal<Option<Option<Arc<Vec<u8>>>>> = create_rw_signal(None);
     if url.starts_with("http://") || url.starts_with("https://") {
@@ -490,11 +521,15 @@ fn image_view(url: String, base_dir: Option<PathBuf>, config: &PlanckConfig) -> 
             Some(cached) => data.set(Some(cached)),
             None => {
                 let key = url.clone();
-                let send = create_ext_action(Scope::current(), move |bytes: Option<Vec<u8>>| {
-                    let bytes = bytes.map(Arc::new);
-                    REMOTE_IMAGES.with(|c| c.borrow_mut().insert(key, bytes.clone()));
-                    data.try_update(|d| *d = Some(bytes));
-                });
+                let send = create_ext_action(
+                    Scope::current(),
+                    move |bytes: Option<Vec<u8>>| {
+                        let bytes = bytes.map(Arc::new);
+                        REMOTE_IMAGES
+                            .with(|c| c.borrow_mut().insert(key, bytes.clone()));
+                        data.try_update(|d| *d = Some(bytes));
+                    },
+                );
                 let url = url.clone();
                 std::thread::spawn(move || send(fetch_image(&url)));
             }
@@ -572,8 +607,12 @@ fn sized_image(bytes: Arc<Vec<u8>>, width: RwSignal<f64>) -> Option<AnyView> {
         s.width(shown).height(shown * h / w)
     };
     Some(match svg_text {
-        Some(text) => floem::views::svg(move || text.clone()).style(fit).into_any(),
-        None => floem::views::img(move || bytes.to_vec()).style(fit).into_any(),
+        Some(text) => floem::views::svg(move || text.clone())
+            .style(fit)
+            .into_any(),
+        None => floem::views::img(move || bytes.to_vec())
+            .style(fit)
+            .into_any(),
     })
 }
 
@@ -582,11 +621,15 @@ fn svg_size(svg: &str) -> Option<(f64, f64)> {
     let start = svg.find("<svg")?;
     let tag = &svg[start..start + svg[start..].find('>')?];
     let attr = |name: &str| {
-        let re = regex::Regex::new(&format!(r#"\s{name}\s*=\s*["']([^"']*)["']"#)).ok()?;
+        let re = regex::Regex::new(&format!(r#"\s{name}\s*=\s*["']([^"']*)["']"#))
+            .ok()?;
         Some(re.captures(tag)?.get(1)?.as_str().to_string())
     };
     let number = |v: String| v.trim().trim_end_matches("px").parse::<f64>().ok();
-    if let (Some(w), Some(h)) = (attr("width").and_then(number), attr("height").and_then(number)) {
+    if let (Some(w), Some(h)) = (
+        attr("width").and_then(number),
+        attr("height").and_then(number),
+    ) {
         return Some((w, h));
     }
     let view_box: Vec<f64> = attr("viewBox")?
@@ -615,8 +658,7 @@ fn raw_block(
     };
     let line_height = config.editor.line_height() as f64;
     // The last block can end in a newline with the cursor after it: give that line a glyph.
-    let shown = if item.last && (item.text.is_empty() || item.text.ends_with('\n'))
-    {
+    let shown = if item.last && (item.text.is_empty() || item.text.ends_with('\n')) {
         format!("{} ", item.text)
     } else {
         item.text
@@ -744,7 +786,10 @@ fn click(ed: &EditorData, offset: usize, pe: &PointerInputEvent) {
         2 => Some(ed.editor.select_word(offset)),
         3 => {
             let line = ed.editor.line_of_offset(offset);
-            Some((ed.editor.offset_of_line(line), ed.editor.offset_of_line(line + 1)))
+            Some((
+                ed.editor.offset_of_line(line),
+                ed.editor.offset_of_line(line + 1),
+            ))
         }
         _ => None,
     };
@@ -809,7 +854,10 @@ fn toggle_task(ctx: &BlockCtx, source: &str, base: usize, n: usize) {
     let start = block_start(ctx.blocks, ctx.index) + base + range.start;
     let end = block_start(ctx.blocks, ctx.index) + base + range.end;
     ctx.ed.doc().do_raw_edit(
-        &[(Selection::region(start, end), if checked { "[ ]" } else { "[x]" })],
+        &[(
+            Selection::region(start, end),
+            if checked { "[ ]" } else { "[x]" },
+        )],
         EditType::Other,
     );
 }
@@ -834,7 +882,10 @@ fn follow_link(ed: &EditorData, offset: usize, pe: &PointerInputEvent) -> bool {
         if let Some(offset) = heading_offset(&text, anchor) {
             ed.cursor().update(|c| c.set_offset(offset, false, false));
         }
-    } else if ["http://", "https://", "mailto:"].iter().any(|p| dest.starts_with(p)) {
+    } else if ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| dest.starts_with(p))
+    {
         ed.common
             .internal_command
             .send(InternalCommand::OpenWebUri { uri: dest });
@@ -870,7 +921,9 @@ fn link_at(text: &str, offset: usize) -> Option<String> {
 /// Where the heading with this anchor starts: its `{#id}`, else its GitHub-style slug.
 fn heading_offset(text: &str, anchor: &str) -> Option<usize> {
     let mut heading: Option<(usize, String)> = None;
-    for (event, range) in Parser::new_ext(text, document_options()).into_offset_iter() {
+    for (event, range) in
+        Parser::new_ext(text, document_options()).into_offset_iter()
+    {
         match event {
             MdEvent::Start(Tag::Heading { id, .. }) => {
                 if id.as_deref() == Some(anchor) {
@@ -928,7 +981,8 @@ fn split_blocks(text: &str) -> Vec<Block> {
         .into_offset_iter()
         .next()
         .and_then(|(event, range)| {
-            matches!(event, MdEvent::Start(Tag::MetadataBlock(_))).then_some(range.end)
+            matches!(event, MdEvent::Start(Tag::MetadataBlock(_)))
+                .then_some(range.end)
         })
         .unwrap_or(0);
     if body > 0 {
@@ -953,7 +1007,9 @@ fn split_blocks(text: &str) -> Vec<Block> {
                 depth += 1;
             }
             MdEvent::End(_) => depth = depth.saturating_sub(1),
-            MdEvent::Rule if depth == 0 => starts.push((range.start, BlockKind::Rule)),
+            MdEvent::Rule if depth == 0 => {
+                starts.push((range.start, BlockKind::Rule))
+            }
             _ if depth == 0 => starts.push((range.start, BlockKind::Other)),
             _ => {}
         }
@@ -980,7 +1036,9 @@ fn split_blocks(text: &str) -> Vec<Block> {
 /// Table rows (header first) with each cell's text range, pipes and padding trimmed.
 fn table_rows(text: &str) -> Vec<(bool, Vec<Range<usize>>)> {
     let mut rows: Vec<(bool, Vec<Range<usize>>)> = Vec::new();
-    for (event, range) in Parser::new_ext(text, markdown_options()).into_offset_iter() {
+    for (event, range) in
+        Parser::new_ext(text, markdown_options()).into_offset_iter()
+    {
         match event {
             MdEvent::Start(Tag::TableHead) => rows.push((true, Vec::new())),
             MdEvent::Start(Tag::TableRow) => rows.push((false, Vec::new())),
@@ -988,8 +1046,10 @@ fn table_rows(text: &str) -> Vec<(bool, Vec<Range<usize>>)> {
                 if let Some((_, cells)) = rows.last_mut() {
                     let cell = &text[range.clone()];
                     let pad = |c: char| c.is_whitespace() || c == '|';
-                    let start = range.start + cell.len() - cell.trim_start_matches(pad).len();
-                    let end = range.end - (cell.len() - cell.trim_end_matches(pad).len());
+                    let start = range.start + cell.len()
+                        - cell.trim_start_matches(pad).len();
+                    let end =
+                        range.end - (cell.len() - cell.trim_end_matches(pad).len());
                     cells.push(start..end.max(start));
                 }
             }
@@ -1019,7 +1079,10 @@ fn front_matter_rows(text: &str) -> Vec<(Range<usize>, Range<usize>)> {
             Some(colon) if !content.starts_with([' ', '\t', '-', '#']) => {
                 let value = &content[colon + 1..];
                 let value_start = end - value.trim_start().len();
-                rows.push((start..start + content[..colon].trim_end().len(), value_start..end));
+                rows.push((
+                    start..start + content[..colon].trim_end().len(),
+                    value_start..end,
+                ));
             }
             _ if !content.trim().is_empty() => {
                 if let Some((_, value)) = rows.last_mut() {
@@ -1177,7 +1240,10 @@ mod tests {
     fn tables_and_front_matter_are_blocks() {
         let text = "---\ntitle: Notes\ntags:\n  - a\n  - b\n---\n# H\n\n| a | **b** |\n|---|:-:|\n| 1 |\n";
         let kinds: Vec<_> = split_blocks(text).iter().map(|b| b.kind).collect();
-        assert_eq!(kinds, [BlockKind::FrontMatter, BlockKind::Other, BlockKind::Table]);
+        assert_eq!(
+            kinds,
+            [BlockKind::FrontMatter, BlockKind::Other, BlockKind::Table]
+        );
 
         let fm = &text[split_blocks(text)[0].range.clone()];
         let rows: Vec<_> = front_matter_rows(fm)
@@ -1209,12 +1275,21 @@ mod tests {
             .collect();
         assert_eq!(
             kinds,
-            [BlockKind::Quote(None), BlockKind::Quote(Some(BlockQuoteKind::Warning))]
+            [
+                BlockKind::Quote(None),
+                BlockKind::Quote(Some(BlockQuoteKind::Warning))
+            ]
         );
 
         let text = "# Getting `Started`!\n\nSee [docs](other.md#x) and <https://a.b>.\n\n## Two {#custom}\n";
-        assert_eq!(link_at(text, text.find("docs").unwrap()).as_deref(), Some("other.md#x"));
-        assert_eq!(link_at(text, text.find("a.b").unwrap()).as_deref(), Some("https://a.b"));
+        assert_eq!(
+            link_at(text, text.find("docs").unwrap()).as_deref(),
+            Some("other.md#x")
+        );
+        assert_eq!(
+            link_at(text, text.find("a.b").unwrap()).as_deref(),
+            Some("https://a.b")
+        );
         assert_eq!(link_at(text, text.find("See").unwrap()), None);
         assert_eq!(heading_offset(text, "getting-started"), Some(0));
         assert_eq!(heading_offset(text, "custom"), text.find("## Two"));
@@ -1227,9 +1302,18 @@ mod tests {
 
     #[test]
     fn svg_sizes() {
-        assert_eq!(svg_size(r#"<svg xmlns="x" width="78" height="20">"#), Some((78.0, 20.0)));
-        assert_eq!(svg_size(r#"<?xml?><svg viewBox="0 0 24 12" >"#), Some((24.0, 12.0)));
-        assert_eq!(svg_size(r#"<svg width="10px" height='5'>"#), Some((10.0, 5.0)));
+        assert_eq!(
+            svg_size(r#"<svg xmlns="x" width="78" height="20">"#),
+            Some((78.0, 20.0))
+        );
+        assert_eq!(
+            svg_size(r#"<?xml?><svg viewBox="0 0 24 12" >"#),
+            Some((24.0, 12.0))
+        );
+        assert_eq!(
+            svg_size(r#"<svg width="10px" height='5'>"#),
+            Some((10.0, 5.0))
+        );
         assert_eq!(svg_size("<svg>"), None);
     }
 
