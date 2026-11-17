@@ -496,8 +496,22 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Bash,
         indent: Indent::space(2),
-        files: &[],
-        extensions: &["bash", "sh"],
+        files: &[
+            ".bashrc",
+            ".bash_profile",
+            ".bash_login",
+            ".bash_logout",
+            ".bash_aliases",
+            ".profile",
+            ".zshrc",
+            ".zshenv",
+            ".zprofile",
+            ".zlogin",
+            ".zlogout",
+            ".envrc",
+            "PKGBUILD",
+        ],
+        extensions: &["bash", "sh", "zsh", "ksh"],
         comment: comment_properties!("#"),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -2071,5 +2085,7 @@ mod tests {
     fn test_language_from_path() {
         let l = PlanckLanguage::from_path(&PathBuf::new().join("test.rs"));
         assert_eq!(l, PlanckLanguage::Rust);
+        let l = PlanckLanguage::from_path(&PathBuf::from("/home/u/.zshrc"));
+        assert_eq!(l, PlanckLanguage::Bash);
     }
 }
