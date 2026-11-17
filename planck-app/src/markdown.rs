@@ -39,29 +39,49 @@ pub fn parse_markdown(
 
     let mut tag_stack: SmallVec<[(usize, Tag); 4]> = SmallVec::new();
 
-    let parser = Parser::new_ext(
-        text,
-        Options::ENABLE_TABLES
-            | Options::ENABLE_FOOTNOTES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_HEADING_ATTRIBUTES,
-    );
+    let parser = Parser::new_ext(text, markdown_options());
+    // Ordered lists keep their next number, bullet lists None.
+    let mut lists: SmallVec<[Option<u64>; 4]> = SmallVec::new();
     let mut last_text = CowStr::from("");
     // Whether we should add a newline on the next entry
     // This is used so that we don't emit newlines at the very end of the generation
     let mut add_newline = false;
     for event in parser {
-        // Add the newline since we're going to be outputting more
+        // Add the newline since we're going to be outputting more.
+        // Nested blocks end together, so don't stack blank lines.
         if add_newline {
-            current_text.push('\n');
-            builder_dirty = true;
-            pos += 1;
+            if !current_text.ends_with('\n') {
+                current_text.push('\n');
+                builder_dirty = true;
+                pos += 1;
+            }
             add_newline = false;
         }
 
         match event {
             Event::Start(tag) => {
+                match &tag {
+                    Tag::List(start) => lists.push(*start),
+                    Tag::Item => {
+                        if !current_text.is_empty() && !current_text.ends_with('\n') {
+                            current_text.push('\n');
+                            pos += 1;
+                        }
+                        let marker = match lists.last_mut() {
+                            Some(Some(n)) => {
+                                *n += 1;
+                                format!("{}. ", *n - 1)
+                            }
+                            _ => "• ".to_string(),
+                        };
+                        let indent = "    ".repeat(lists.len().saturating_sub(1));
+                        current_text.push_str(&indent);
+                        current_text.push_str(&marker);
+                        pos += indent.len() + marker.len();
+                        builder_dirty = true;
+                    }
+                    _ => {}
+                }
                 tag_stack.push((pos, tag));
             }
             Event::End(end_tag) => {
@@ -83,6 +103,9 @@ pub fn parse_markdown(
 
                     if should_add_newline_after_tag(&tag) {
                         add_newline = true;
+                    }
+                    if let Tag::List(_) = tag {
+                        lists.pop();
                     }
 
                     match &tag {
@@ -183,7 +206,12 @@ pub fn parse_markdown(
             }
             Event::Rule => {}
             Event::FootnoteReference(_text) => {}
-            Event::TaskListMarker(_text) => {}
+            Event::TaskListMarker(checked) => {
+                let marker = if checked { "☑ " } else { "☐ " };
+                current_text.push_str(marker);
+                pos += marker.len();
+                builder_dirty = true;
+            }
             Event::InlineHtml(_) => {} // TODO(panekj): Implement
             Event::InlineMath(_) => {} // TODO(panekj): Implement
             Event::DisplayMath(_) => {} // TODO(panekj): Implement
@@ -197,6 +225,14 @@ pub fn parse_markdown(
     }
 
     res
+}
+
+pub fn markdown_options() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_HEADING_ATTRIBUTES
 }
 
 fn attribute_for_tag<'a>(

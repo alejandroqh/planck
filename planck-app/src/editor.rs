@@ -91,6 +91,7 @@ use crate::{
 pub mod diff;
 pub mod gutter;
 pub mod location;
+pub mod markdown_view;
 pub mod minimap;
 pub mod view;
 
@@ -107,6 +108,8 @@ pub struct EditorInfo {
     pub offset: usize,
     pub scroll_offset: (f64, f64),
     pub confirmed: Option<bool>,
+    #[serde(default)]
+    pub markdown_rich: bool,
 }
 
 impl EditorInfo {
@@ -130,6 +133,7 @@ impl EditorInfo {
                     None,
                     common,
                 );
+                editor.markdown_rich.set(self.markdown_rich);
                 editor.go_to_location(
                     EditorLocation {
                         path: path.clone(),
@@ -226,6 +230,8 @@ pub struct EditorData {
     pub sticky_header_height: RwSignal<f64>,
     pub common: Rc<CommonData>,
     pub sticky_header_info: RwSignal<StickyHeaderInfo>,
+    /// Markdown files: show the Rich view instead of the text.
+    pub markdown_rich: RwSignal<bool>,
 }
 
 impl PartialEq for EditorData {
@@ -266,6 +272,7 @@ impl EditorData {
             sticky_header_height: cx.create_rw_signal(0.0),
             common,
             sticky_header_info: cx.create_rw_signal(StickyHeaderInfo::default()),
+            markdown_rich: cx.create_rw_signal(false),
         }
     }
 
@@ -335,6 +342,7 @@ impl EditorData {
             self.common.clone(),
         );
         editor.editor.cursor.set(self.editor.cursor.get_untracked());
+        editor.markdown_rich.set(self.markdown_rich.get_untracked());
         editor
             .editor
             .viewport
@@ -370,6 +378,7 @@ impl EditorData {
             offset,
             scroll_offset: (scroll_offset.x, scroll_offset.y),
             confirmed: Some(self.confirmed.get_untracked()),
+            markdown_rich: self.markdown_rich.get_untracked(),
         }
     }
 

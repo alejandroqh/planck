@@ -986,6 +986,11 @@ impl WindowTabData {
                 self.main_split.export_theme();
             }
             ToggleInlayHints => {}
+            ToggleMarkdownRichView => {
+                if let Some(editor) = self.main_split.active_editor.get_untracked() {
+                    editor.markdown_rich.update(|rich| *rich = !*rich);
+                }
+            }
             ToggleLineBlame => {
                 let enabled =
                     self.common.config.get_untracked().editor.current_line_blame;

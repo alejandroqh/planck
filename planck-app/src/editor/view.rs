@@ -1,7 +1,7 @@
 use std::{cmp, ops::DerefMut, rc::Rc, sync::Arc};
 
 use floem::{
-    Renderer, View, ViewId,
+    IntoView, Renderer, View, ViewId,
     action::{set_ime_allowed, set_ime_cursor_area},
     context::{PaintCx, StyleCx},
     event::{Event, EventListener, EventPropagation},
@@ -20,7 +20,7 @@ use floem::{
     taffy::prelude::NodeId,
     text::{Attrs, AttrsList, FamilyOwned, LineHeightValue, TextLayout},
     views::{
-        Decorators, clip, container, dyn_stack,
+        Decorators, clip, container, dyn_container, dyn_stack,
         editor::{
             CurrentLineColor, CursorSurroundingLines, Editor, EditorStyle,
             IndentGuideColor, IndentStyleProp, Modal, ModalRelativeLine,
@@ -45,13 +45,14 @@ use lsp_types::CodeLens;
 use planck_core::{
     buffer::{Buffer, diff::DiffLines, rope_text::RopeText},
     cursor::{CursorAffinity, CursorMode},
+    language::PlanckLanguage,
     selection::SelRegion,
 };
 use planck_rpc::{plugin::PluginId, source_control::CommitInfo};
 
 use super::{
     DocSignal, EditorData, EditorViewKind, gutter::editor_gutter_view,
-    minimap::minimap_view,
+    markdown_view::markdown_rich_view, minimap::minimap_view,
 };
 use crate::{
     app::clickable_icon,
@@ -1427,24 +1428,60 @@ pub fn editor_container_view(
     let viewport = ed.viewport;
     let screen_lines = ed.screen_lines;
 
+    let markdown_rich = editor.with_untracked(|e| e.markdown_rich);
+    let is_markdown = create_memo(move |_| {
+        doc.with(|d| d.syntax().with(|s| s.language == PlanckLanguage::Markdown))
+    });
+    let show_rich = create_memo(move |_| {
+        markdown_rich.get() && is_markdown.get() && editor_view.get().is_normal()
+    });
+
     stack((
-        editor_breadcrumbs(workspace, editor.get_untracked(), config),
+        editor_breadcrumbs(
+            workspace,
+            editor.get_untracked(),
+            config,
+            markdown_rich,
+            is_markdown,
+        ),
         stack((
-            editor_gutter(window_tab_data.clone(), editor),
+            editor_gutter(window_tab_data.clone(), editor)
+                .style(move |s| s.apply_if(show_rich.get(), |s| s.hide())),
             editor_gutter_folding_range(
                 window_tab_data.clone(),
                 doc,
                 screen_lines,
                 viewport,
-            ),
-            editor_content(editor, is_active),
+            )
+            .style(move |s| s.apply_if(show_rich.get(), |s| s.hide())),
+            editor_content(editor, is_active)
+                .style(move |s| s.apply_if(show_rich.get(), |s| s.hide())),
+            // Built only while shown, so text mode pays nothing for it.
+            dyn_container(
+                move || show_rich.get(),
+                move |show| {
+                    if show {
+                        markdown_rich_view(editor, is_active).into_any()
+                    } else {
+                        empty().into_any()
+                    }
+                },
+            )
+            .style(move |s| {
+                s.flex_grow(1.0f32)
+                    .flex_basis(0)
+                    .height_full()
+                    .apply_if(!show_rich.get(), |s| s.hide())
+            }),
             minimap_view(editor.get_untracked()).style(move |s| {
                 let config = config.get();
                 s.height_full()
                     .width(config.editor.minimap_width as f32)
                     .flex_shrink(0.0_f32)
                     .apply_if(
-                        !config.editor.minimap || !editor_view.get().is_normal(),
+                        !config.editor.minimap
+                            || !editor_view.get().is_normal()
+                            || show_rich.get(),
                         |s| s.hide(),
                     )
             }),
@@ -1859,6 +1896,8 @@ fn editor_breadcrumbs(
     workspace: Arc<PlanckWorkspace>,
     e_data: EditorData,
     config: ReadSignal<Arc<PlanckConfig>>,
+    markdown_rich: RwSignal<bool>,
+    is_markdown: Memo<bool>,
 ) -> impl View {
     let doc = e_data.doc_signal();
     let doc_path = create_memo(move |_| {
@@ -1870,7 +1909,7 @@ fn editor_breadcrumbs(
             content.path().cloned()
         }
     });
-    container(
+    stack((
         scroll(
             stack((
                 {
@@ -1958,7 +1997,8 @@ fn editor_breadcrumbs(
                 .border_color(config.get().color(PlanckColor::PLANCK_BORDER))
                 .items_center()
         }),
-    )
+        markdown_view_switch(markdown_rich, is_markdown, config),
+    ))
     .style(move |s| {
         let config = config.get_untracked();
         let line_height = config.editor.line_height();
@@ -1969,6 +2009,44 @@ fn editor_breadcrumbs(
             .apply_if(!config.editor.show_bread_crumbs, |s| s.hide())
     })
     .debug_name("Editor BreadCrumbs")
+}
+
+/// Text / Rich switch shown in the path bar of markdown files.
+fn markdown_view_switch(
+    markdown_rich: RwSignal<bool>,
+    is_markdown: Memo<bool>,
+    config: ReadSignal<Arc<PlanckConfig>>,
+) -> impl View {
+    let option = move |name: &'static str, rich: bool| {
+        label(move || name)
+            .on_click_stop(move |_| markdown_rich.set(rich))
+            .style(move |s| {
+                let config = config.get();
+                let selected = markdown_rich.get() == rich;
+                s.padding_horiz(8.0)
+                    .border_radius(4.0)
+                    .selectable(false)
+                    .cursor(CursorStyle::Pointer)
+                    .apply_if(selected, |s| {
+                        s.background(config.color(PlanckColor::PANEL_CURRENT_BACKGROUND))
+                    })
+                    .apply_if(!selected, |s| {
+                        s.color(config.color(PlanckColor::EDITOR_DIM)).hover(|s| {
+                            s.background(
+                                config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                            )
+                        })
+                    })
+            })
+    };
+    stack((option("Text", false), option("Rich", true))).style(move |s| {
+        s.absolute()
+            .inset_right(8.0)
+            .height_full()
+            .items_center()
+            .gap(2.0)
+            .apply_if(!is_markdown.get(), |s| s.hide())
+    })
 }
 
 fn editor_content(

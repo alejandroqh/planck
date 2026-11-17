@@ -1189,7 +1189,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Markdown,
         indent: Indent::space(4),
         files: &[],
-        extensions: &["md"],
+        extensions: &["md", "markdown"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },

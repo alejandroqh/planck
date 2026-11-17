@@ -540,6 +540,10 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Toggle Line Blame")]
     ToggleLineBlame,
 
+    #[strum(serialize = "toggle_markdown_rich_view")]
+    #[strum(message = "Toggle Markdown Rich View")]
+    ToggleMarkdownRichView,
+
     #[strum(serialize = "restart_to_update")]
     RestartToUpdate,
 
