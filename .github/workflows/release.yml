@@ -1,6 +1,6 @@
 name: Release
 
-# Builds .deb and .rpm for amd64 and arm64 and a macOS arm64 .dmg, then
+# Builds .deb and .rpm for amd64 and arm64 and a universal macOS .dmg, then
 # publishes them as a GitHub release. A v* tag makes a stable release; running
 # it by hand makes the "nightly" prerelease.
 on:
@@ -65,19 +65,24 @@ jobs:
           retention-days: 1
 
   macos:
-    runs-on: macos-15
+    # GitHub often has no Apple Silicon runner free and cancels the job unstarted
+    # after 15 minutes; the Intel pool has room, and the universal build runs
+    # natively on both Apple Silicon and Intel Macs.
+    runs-on: macos-15-intel
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Update rust
-        run: rustup update --no-self-update
+        run: |
+          rustup update --no-self-update
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
       # shortcut: ad-hoc signed and not notarized, so macOS asks to confirm the
       # first launch; sign with a Developer ID and notarize once there is one.
       - name: Build Planck.dmg
-        run: make dmg CODESIGN_IDENTITY=-
+        run: make dmg-universal CODESIGN_IDENTITY=-
 
       - name: Rename
         run: |
