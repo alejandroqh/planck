@@ -227,6 +227,111 @@ pub fn parse_markdown(
     res
 }
 
+/// Which part of markdown source a span is, for [`style_markdown_source`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SourcePart {
+    /// Syntax such as `##`, `**`, list markers and link targets.
+    Markup,
+    Text,
+    Code,
+}
+
+/// Walks markdown source in order, calling `emit` for every span with the
+/// tags it is inside, so the whole text is covered once.
+pub fn walk_source(
+    text: &str,
+    mut emit: impl FnMut(std::ops::Range<usize>, &[Tag], SourcePart),
+) {
+    let mut stack: Vec<Tag> = Vec::new();
+    let mut pos = 0;
+    let mut part = |range: std::ops::Range<usize>,
+                    stack: &[Tag],
+                    kind: SourcePart,
+                    pos: &mut usize| {
+        if range.start < range.end && range.start >= *pos {
+            emit(range.clone(), stack, kind);
+        }
+        *pos = (*pos).max(range.end);
+    };
+    for (event, range) in Parser::new_ext(text, markdown_options()).into_offset_iter()
+    {
+        match event {
+            Event::Start(tag) => {
+                part(pos..range.start, &stack, SourcePart::Markup, &mut pos);
+                stack.push(tag);
+            }
+            Event::End(_) => {
+                part(pos..range.end, &stack, SourcePart::Markup, &mut pos);
+                stack.pop();
+            }
+            Event::Text(_) | Event::Html(_) | Event::InlineHtml(_) => {
+                part(pos..range.start, &stack, SourcePart::Markup, &mut pos);
+                part(range, &stack, SourcePart::Text, &mut pos);
+            }
+            Event::Code(_) => {
+                part(pos..range.start, &stack, SourcePart::Markup, &mut pos);
+                let code = &text[range.clone()];
+                let lead = code.len() - code.trim_start_matches('`').len();
+                let trail = code.len() - code.trim_end_matches('`').len();
+                let inner = range.start + lead..range.end - trail;
+                part(range.start..inner.start, &stack, SourcePart::Markup, &mut pos);
+                part(inner, &stack, SourcePart::Code, &mut pos);
+                part(pos..range.end, &stack, SourcePart::Markup, &mut pos);
+            }
+            // Breaks, rules and task markers are covered by the next markup span.
+            _ => {}
+        }
+    }
+    part(pos..text.len(), &stack, SourcePart::Markup, &mut pos);
+}
+
+/// Markdown source styled like its rendering (heading sizes, bold, code font),
+/// with the syntax characters dimmed, for editing in the Rich view.
+pub fn style_markdown_source(
+    text: &str,
+    line_height: f64,
+    config: &PlanckConfig,
+) -> AttrsList {
+    let code_font_family: Vec<FamilyOwned> =
+        FamilyOwned::parse_list(&config.editor.font_family).collect();
+    let default_attrs = Attrs::new()
+        .color(config.color(PlanckColor::EDITOR_FOREGROUND))
+        .font_size(config.ui.font_size() as f32)
+        .line_height(LineHeightValue::Normal(line_height as f32));
+    let dim = config.color(PlanckColor::EDITOR_DIM);
+    let mut attr_list = AttrsList::new(default_attrs.clone());
+    walk_source(text, |range, stack, part| {
+        let attrs = stack.iter().fold(default_attrs.clone(), |attrs, tag| {
+            attribute_for_tag(attrs.clone(), tag, &code_font_family, config)
+                .unwrap_or(attrs)
+        });
+        match part {
+            SourcePart::Markup => attr_list.add_span(range, attrs.color(dim)),
+            SourcePart::Code => {
+                attr_list.add_span(range, attrs.family(&code_font_family))
+            }
+            SourcePart::Text => {
+                let language = stack.iter().find_map(|tag| match tag {
+                    Tag::CodeBlock(CodeBlockKind::Fenced(lang)) => Some(lang),
+                    _ => None,
+                });
+                attr_list.add_span(range.clone(), attrs.clone());
+                if let Some(language) = language {
+                    highlight_as_code(
+                        &mut attr_list,
+                        attrs,
+                        md_language_to_planck_language(language),
+                        &text[range.clone()],
+                        range.start,
+                        config,
+                    );
+                }
+            }
+        }
+    });
+    attr_list
+}
+
 pub fn markdown_options() -> Options {
     Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
@@ -377,4 +482,31 @@ pub fn from_plaintext(
         None,
     );
     vec![MarkdownContent::Text(text_layout)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SourcePart, walk_source};
+
+    fn markup(text: &str) -> Vec<&str> {
+        let mut spans = Vec::new();
+        let mut covered = 0;
+        walk_source(text, |range, _, part| {
+            assert_eq!(range.start, covered, "spans must be contiguous");
+            covered = range.end;
+            if part == SourcePart::Markup && !text[range.clone()].trim().is_empty() {
+                spans.push(text[range].trim());
+            }
+        });
+        assert_eq!(covered, text.len());
+        spans
+    }
+
+    #[test]
+    fn markdown_syntax_is_found() {
+        assert_eq!(markup("## Title\n"), ["##"]);
+        assert_eq!(markup("a **b** `c` [d](e)\n"), ["**", "**", "`", "`", "[", "](e)"]);
+        assert_eq!(markup("```rs\nfn x() {}\n```\n"), ["```rs", "```"]);
+        assert_eq!(markup("- one\n"), ["-"]);
+    }
 }

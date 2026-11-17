@@ -18,7 +18,7 @@ use floem::{
         create_memo, create_rw_signal,
     },
     style::CursorStyle,
-    text::{Attrs, AttrsList, FamilyOwned, LineHeightValue, TextLayout},
+    text::TextLayout,
     views::{
         Decorators, canvas, dyn_stack, empty, rich_text, scroll, stack,
         stack_from_iter,
@@ -31,9 +31,14 @@ use super::EditorData;
 use crate::{
     command::InternalCommand,
     config::color::PlanckColor,
-    markdown::{MarkdownContent, markdown_options, parse_markdown},
+    markdown::{
+        MarkdownContent, markdown_options, parse_markdown, style_markdown_source,
+    },
     window_tab::Focus,
 };
+
+/// Line spacing of rendered blocks, and of the block being edited so it doesn't jump.
+const RENDERED_LINE_HEIGHT: f64 = 1.6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum BlockKind {
@@ -165,7 +170,7 @@ fn rendered_block(
     let content = if item.kind == BlockKind::Rule {
         vec![MarkdownContent::Separator]
     } else {
-        parse_markdown(&source, 1.6, &config)
+        parse_markdown(&source, RENDERED_LINE_HEIGHT, &config)
     };
 
     let border = config.color(PlanckColor::PLANCK_BORDER);
@@ -254,16 +259,9 @@ fn raw_block(
     } else {
         item.text
     };
-    let family: Vec<FamilyOwned> =
-        FamilyOwned::parse_list(&config.editor.font_family).collect();
-    let attrs = Attrs::new()
-        .color(config.color(PlanckColor::EDITOR_FOREGROUND))
-        .family(&family)
-        .font_size(config.editor.font_size() as f32)
-        .line_height(LineHeightValue::Px(line_height as f32));
     let layout = create_rw_signal(TextLayout::new_with_text(
         &shown,
-        AttrsList::new(attrs),
+        style_markdown_source(&shown, RENDERED_LINE_HEIGHT, &config),
         None,
     ));
 
