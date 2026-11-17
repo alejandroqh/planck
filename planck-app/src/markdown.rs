@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use floem::{
     peniko::Color,
     text::{
@@ -363,6 +365,7 @@ pub fn markdown_options() -> Options {
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_GFM
 }
 
 /// Options for whole markdown files, which can start with YAML front matter.
@@ -410,7 +413,8 @@ fn attribute_for_tag<'a>(
         Tag::CodeBlock(_) => Some(default_attrs.family(code_font_family)),
         Tag::Emphasis => Some(default_attrs.style(Style::Italic)),
         Tag::Strong => Some(default_attrs.weight(Weight::BOLD)),
-        // TODO: Strikethrough support
+        // The text renderer has no strikethrough; views that support it draw the line.
+        Tag::Strikethrough => Some(default_attrs.metadata(STRIKETHROUGH)),
         Tag::Link {
             link_type: _,
             dest_url: _,
@@ -439,9 +443,20 @@ fn should_skip_text_in_tag(tag: &Tag) -> bool {
     matches!(tag, Tag::Image { .. })
 }
 
+/// Glyph metadata marking `~~struck~~` text.
+pub const STRIKETHROUGH: usize = 1;
+
+/// The language of a code fence. Info strings can carry extras ("rust,ignore"),
+/// and short names like js, py and sh resolve through the file extension table.
 fn md_language_to_planck_language(lang: &str) -> Option<PlanckLanguage> {
-    // TODO: There are many other names commonly used that should be supported
+    let lang = lang.split([',', ' ', '{', '}']).find(|s| !s.is_empty())?;
+    let lang = match lang {
+        "shell" | "console" => "sh",
+        other => other,
+    };
     PlanckLanguage::from_name(lang)
+        .or_else(|| PlanckLanguage::from_path_raw(Path::new(&format!("x.{lang}"))))
+        .or_else(|| PlanckLanguage::from_path_raw(Path::new(lang)))
 }
 
 /// Highlight the text in a richtext builder like it was a markdown codeblock
@@ -517,7 +532,9 @@ pub fn from_plaintext(
 
 #[cfg(test)]
 mod tests {
-    use super::{SourcePart, walk_source};
+    use planck_core::language::PlanckLanguage;
+
+    use super::{SourcePart, md_language_to_planck_language, walk_source};
 
     fn markup(text: &str) -> Vec<&str> {
         let mut spans = Vec::new();
@@ -539,5 +556,19 @@ mod tests {
         assert_eq!(markup("a **b** `c` [d](e)\n"), ["**", "**", "`", "`", "[", "](e)"]);
         assert_eq!(markup("```rs\nfn x() {}\n```\n"), ["```rs", "```"]);
         assert_eq!(markup("- one\n"), ["-"]);
+    }
+
+    #[test]
+    fn code_fence_languages() {
+        let lang = md_language_to_planck_language;
+        assert_eq!(lang("rust"), Some(PlanckLanguage::Rust));
+        assert_eq!(lang("rust,ignore"), Some(PlanckLanguage::Rust));
+        assert_eq!(lang("js"), Some(PlanckLanguage::Javascript));
+        assert_eq!(lang("py"), Some(PlanckLanguage::Python));
+        assert_eq!(lang("sh"), Some(PlanckLanguage::Bash));
+        assert_eq!(lang("shell"), Some(PlanckLanguage::Bash));
+        assert_eq!(lang("ts title=x"), Some(PlanckLanguage::Typescript));
+        assert_eq!(lang("no-such-language"), None);
+        assert_eq!(lang(""), None);
     }
 }

@@ -31,16 +31,16 @@ use floem::{
         rich_text, scroll, stack, stack_from_iter, v_stack_from_iter,
     },
 };
-use planck_core::cursor::CursorMode;
-use pulldown_cmark::{Event as MdEvent, Parser, Tag};
+use planck_core::{cursor::CursorMode, editor::EditType, selection::Selection};
+use pulldown_cmark::{BlockQuoteKind, Event as MdEvent, Parser, Tag, TagEnd};
 
 use super::EditorData;
 use crate::{
     command::InternalCommand,
     config::{PlanckConfig, color::PlanckColor},
     markdown::{
-        MarkdownContent, document_options, markdown_options, parse_markdown,
-        style_markdown_source,
+        MarkdownContent, STRIKETHROUGH, document_options, markdown_options,
+        parse_markdown, style_markdown_source,
     },
     window_tab::Focus,
 };
@@ -54,6 +54,8 @@ enum BlockKind {
     Code,
     Table,
     FrontMatter,
+    /// A blockquote, or a GitHub alert (`> [!NOTE]`) with its kind.
+    Quote(Option<BlockQuoteKind>),
     Other,
 }
 
@@ -189,8 +191,12 @@ struct BlockCtx {
 impl BlockCtx {
     /// Places the cursor at `offset` within this block's source.
     fn click_at(&self, offset: usize, pe: &PointerInputEvent) {
+        let offset = block_start(self.blocks, self.index) + offset;
+        if follow_link(&self.ed, offset, pe) {
+            return;
+        }
         self.revealed.set(true);
-        click(&self.ed, block_start(self.blocks, self.index) + offset, pe);
+        click(&self.ed, offset, pe);
     }
 }
 
@@ -202,7 +208,7 @@ fn rendered_block(ctx: BlockCtx, item: BlockItem, base_dir: Option<PathBuf>) -> 
         BlockKind::Table => table_view(&ctx, &source, &config),
         BlockKind::FrontMatter => front_matter_view(&ctx, &source, &config),
         BlockKind::Rule => separator(&config),
-        BlockKind::Code | BlockKind::Other => {
+        BlockKind::Code | BlockKind::Quote(_) | BlockKind::Other => {
             let mut rendered_before = String::new();
             let pieces = parse_markdown(&source, RENDERED_LINE_HEIGHT, &config)
                 .into_iter()
@@ -220,9 +226,13 @@ fn rendered_block(ctx: BlockCtx, item: BlockItem, base_dir: Option<PathBuf>) -> 
                     }
                 })
                 .collect::<Vec<_>>();
-            stack_from_iter(pieces)
+            let body = stack_from_iter(pieces)
                 .style(|s| s.flex_col().width_full())
-                .into_any()
+                .into_any();
+            match item.kind {
+                BlockKind::Quote(kind) => quote_view(body, kind, &config),
+                _ => body,
+            }
         }
     };
 
@@ -248,6 +258,46 @@ fn rendered_block(ctx: BlockCtx, item: BlockItem, base_dir: Option<PathBuf>) -> 
         })
 }
 
+/// The bar color and title of a blockquote or GitHub alert.
+fn quote_style(
+    kind: Option<BlockQuoteKind>,
+    config: &PlanckConfig,
+) -> (Color, Option<&'static str>) {
+    let (color, title) = match kind {
+        None => return (config.color(PlanckColor::MARKDOWN_BLOCKQUOTE), None),
+        Some(BlockQuoteKind::Note) => (PlanckColor::TERMINAL_BLUE, "Note"),
+        Some(BlockQuoteKind::Tip) => (PlanckColor::TERMINAL_GREEN, "Tip"),
+        Some(BlockQuoteKind::Important) => (PlanckColor::TERMINAL_MAGENTA, "Important"),
+        Some(BlockQuoteKind::Warning) => (PlanckColor::TERMINAL_YELLOW, "Warning"),
+        Some(BlockQuoteKind::Caution) => (PlanckColor::TERMINAL_RED, "Caution"),
+    };
+    (config.color(color), Some(title))
+}
+
+fn quote_bar(s: floem::style::Style, color: Color) -> floem::style::Style {
+    s.border_left(3.0).border_color(color).padding_left(12.0)
+}
+
+fn quote_view(
+    body: AnyView,
+    kind: Option<BlockQuoteKind>,
+    config: &PlanckConfig,
+) -> AnyView {
+    let (color, title) = quote_style(kind, config);
+    let mut parts = Vec::new();
+    if let Some(title) = title {
+        parts.push(
+            label(move || title)
+                .style(move |s| s.color(color).font_bold().padding_bottom(2.0))
+                .into_any(),
+        );
+    }
+    parts.push(body);
+    v_stack_from_iter(parts)
+        .style(move |s| quote_bar(s.width_full(), color))
+        .into_any()
+}
+
 fn separator(config: &PlanckConfig) -> AnyView {
     let border = config.color(PlanckColor::PLANCK_BORDER);
     empty()
@@ -267,15 +317,21 @@ fn linked_text(
     let layout = create_rw_signal(layout);
     wrapped_text(layout, create_rw_signal(-1.0)).on_event_stop(EventListener::PointerDown, move |event| {
         let Event::PointerDown(pe) = event else { return };
-        let Some(rendered) = layout.with_untracked(|l| {
+        let Some((before, after)) = layout.with_untracked(|l| {
             let hit = hit_offset(l, pe.pos)?;
             let rendered = rendered_text(l);
-            let before = rendered.get(..hit).unwrap_or(&rendered);
-            Some(format!("{prefix}{before}"))
+            let (before, after) = rendered.split_at_checked(hit)?;
+            Some((format!("{prefix}{before}"), after.to_string()))
         }) else {
             return;
         };
-        ctx.click_at(base + source_offset(&source, &rendered), pe);
+        if pe.button.mouse_button() == MouseButton::Primary
+            && let Some(task) = clicked_task(&before, &after)
+        {
+            toggle_task(&ctx, &source, base, task);
+            return;
+        }
+        ctx.click_at(base + source_offset(&source, &before), pe);
     })
 }
 
@@ -553,6 +609,10 @@ fn raw_block(
     let config = ed.common.config.get_untracked();
     let index = item.index;
     let len = item.text.len();
+    let quote = match item.kind {
+        BlockKind::Quote(kind) => Some(quote_style(kind, &config).0),
+        _ => None,
+    };
     let line_height = config.editor.line_height() as f64;
     // The last block can end in a newline with the cursor after it: give that line a glyph.
     let shown = if item.last && (item.text.is_empty() || item.text.ends_with('\n'))
@@ -638,7 +698,10 @@ fn raw_block(
                 id.request_active();
                 ed.active().set(true);
             }
-            click(&ed, offset_at(pe.pos), pe);
+            let offset = offset_at(pe.pos);
+            if !follow_link(&ed, offset, pe) {
+                click(&ed, offset, pe);
+            }
         }
     })
     .on_event_stop(EventListener::PointerMove, move |event| {
@@ -654,7 +717,12 @@ fn raw_block(
     .on_event_stop(EventListener::PointerUp, move |_| {
         ed_up.active().set(false);
     })
-    .style(move |s| s.width_full().min_height(line_height as f32).padding_vert(4.0))
+    .style(move |s| {
+        s.width_full()
+            .min_height(line_height as f32)
+            .padding_vert(4.0)
+            .apply_opt(quote, quote_bar)
+    })
 }
 
 /// Focuses this editor and places the cursor, like a click in the text view.
@@ -689,14 +757,158 @@ fn click(ed: &EditorData, offset: usize, pe: &PointerInputEvent) {
 /// A rich_text whose layout copy stays wrapped at the drawn width, so hit
 /// testing and caret placement match what is on screen.
 fn wrapped_text(layout: RwSignal<TextLayout>, width: RwSignal<f64>) -> impl View {
-    rich_text(move || layout.get())
+    let text = rich_text(move || layout.get())
         .on_resize(move |rect| {
             if rect.width() != width.get_untracked() {
                 width.set(rect.width());
                 layout.update(|l| l.set_size(rect.width() as f32, f32::MAX));
             }
         })
-        .style(|s| s.width_full())
+        .style(|s| s.width_full());
+    let strikes = canvas(move |cx, _| layout.with(|l| paint_strikethrough(cx, l)))
+        .style(|s| s.absolute().size_full());
+    stack((text, strikes)).style(|s| s.width_full())
+}
+
+/// A line through glyphs marked [`STRIKETHROUGH`], in the glyph's color.
+fn paint_strikethrough(cx: &mut PaintCx, layout: &TextLayout) {
+    for run in layout.layout_runs() {
+        for g in run.glyphs.iter().filter(|g| g.metadata == STRIKETHROUGH) {
+            let Some(c) = g.color_opt else { continue };
+            let y = (run.line_y - g.font_size * 0.3).round() as f64;
+            let rect = Rect::new(g.x as f64, y, (g.x + g.w) as f64, y + 1.0);
+            cx.fill(&rect, Color::from_rgba8(c.r(), c.g(), c.b(), c.a()), 0.0);
+        }
+    }
+}
+
+/// The task checkbox (☐ or ☑) at a click, as its index among the checkboxes
+/// drawn before it, from the rendered text before and after the click.
+fn clicked_task(before: &str, after: &str) -> Option<usize> {
+    let is_box = |c: char| c == '☐' || c == '☑';
+    let before = if after.starts_with(is_box) {
+        before
+    } else {
+        before.strip_suffix(is_box)?
+    };
+    Some(before.chars().filter(|&c| is_box(c)).count())
+}
+
+/// Flips the `n`th `[ ]` / `[x]` in `source`, which starts at `base` in the block.
+fn toggle_task(ctx: &BlockCtx, source: &str, base: usize, n: usize) {
+    let Some((checked, range)) = Parser::new_ext(source, markdown_options())
+        .into_offset_iter()
+        .filter_map(|(event, range)| match event {
+            MdEvent::TaskListMarker(checked) => Some((checked, range)),
+            _ => None,
+        })
+        .nth(n)
+    else {
+        return;
+    };
+    let start = block_start(ctx.blocks, ctx.index) + base + range.start;
+    let end = block_start(ctx.blocks, ctx.index) + base + range.end;
+    ctx.ed.doc().do_raw_edit(
+        &[(Selection::region(start, end), if checked { "[ ]" } else { "[x]" })],
+        EditType::Other,
+    );
+}
+
+/// Ctrl+click (Cmd on macOS) on a link opens it: web links in the browser,
+/// relative files in Planck, `#heading` anchors move the cursor. True if it did.
+fn follow_link(ed: &EditorData, offset: usize, pe: &PointerInputEvent) -> bool {
+    let modifier = if cfg!(target_os = "macos") {
+        pe.modifiers.meta()
+    } else {
+        pe.modifiers.control()
+    };
+    if !modifier || pe.button.mouse_button() != MouseButton::Primary {
+        return false;
+    }
+    let doc = ed.doc();
+    let text = doc.buffer.with_untracked(|b| b.to_string());
+    let Some(dest) = link_at(&text, offset) else {
+        return false;
+    };
+    if let Some(anchor) = dest.strip_prefix('#') {
+        if let Some(offset) = heading_offset(&text, anchor) {
+            ed.cursor().update(|c| c.set_offset(offset, false, false));
+        }
+    } else if ["http://", "https://", "mailto:"].iter().any(|p| dest.starts_with(p)) {
+        ed.common
+            .internal_command
+            .send(InternalCommand::OpenWebUri { uri: dest });
+    } else if !dest.contains(':') {
+        // shortcut: no percent-decoding (`my%20file.md`), add it if such links show up.
+        let file = dest.split(['#', '?']).next().unwrap_or(&dest);
+        let base = doc.content.with_untracked(|c| {
+            c.path().and_then(|p| p.parent()).map(Path::to_path_buf)
+        });
+        if let Some(path) = base.map(|dir| dir.join(file)).filter(|p| p.is_file()) {
+            ed.common
+                .internal_command
+                .send(InternalCommand::OpenFile { path });
+        }
+    }
+    true
+}
+
+/// The destination of the link at `offset`, if any.
+fn link_at(text: &str, offset: usize) -> Option<String> {
+    Parser::new_ext(text, document_options())
+        .into_offset_iter()
+        .find_map(|(event, range)| match event {
+            MdEvent::Start(Tag::Link { dest_url, .. })
+                if range.start <= offset && offset < range.end =>
+            {
+                Some(dest_url.to_string())
+            }
+            _ => None,
+        })
+}
+
+/// Where the heading with this anchor starts: its `{#id}`, else its GitHub-style slug.
+fn heading_offset(text: &str, anchor: &str) -> Option<usize> {
+    let mut heading: Option<(usize, String)> = None;
+    for (event, range) in Parser::new_ext(text, document_options()).into_offset_iter() {
+        match event {
+            MdEvent::Start(Tag::Heading { id, .. }) => {
+                if id.as_deref() == Some(anchor) {
+                    return Some(range.start);
+                }
+                heading = Some((range.start, String::new()));
+            }
+            MdEvent::Text(t) | MdEvent::Code(t) => {
+                if let Some((_, title)) = &mut heading {
+                    title.push_str(&t);
+                }
+            }
+            MdEvent::End(TagEnd::Heading(_)) => {
+                if let Some((start, title)) = heading.take()
+                    && slug(&title) == anchor.to_lowercase()
+                {
+                    return Some(start);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// GitHub's heading anchor: lowercase, punctuation dropped, spaces as dashes.
+/// shortcut: repeated headings don't get the `-1`, `-2` suffixes; the first one wins.
+fn slug(title: &str) -> String {
+    title
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The line holding `offset`, without its newline.
@@ -733,6 +945,7 @@ fn split_blocks(text: &str) -> Vec<Block> {
                     let kind = match tag {
                         Tag::CodeBlock(_) => BlockKind::Code,
                         Tag::Table(_) => BlockKind::Table,
+                        Tag::BlockQuote(kind) => BlockKind::Quote(kind),
                         _ => BlockKind::Other,
                     };
                     starts.push((range.start, kind));
@@ -986,6 +1199,30 @@ mod tests {
             .map(|b| b.kind)
             .collect();
         assert!(!kinds.contains(&BlockKind::FrontMatter), "{kinds:?}");
+    }
+
+    #[test]
+    fn quotes_links_and_tasks() {
+        let kinds: Vec<_> = split_blocks("> plain\n\n> [!WARNING]\n> careful\n")
+            .iter()
+            .map(|b| b.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [BlockKind::Quote(None), BlockKind::Quote(Some(BlockQuoteKind::Warning))]
+        );
+
+        let text = "# Getting `Started`!\n\nSee [docs](other.md#x) and <https://a.b>.\n\n## Two {#custom}\n";
+        assert_eq!(link_at(text, text.find("docs").unwrap()).as_deref(), Some("other.md#x"));
+        assert_eq!(link_at(text, text.find("a.b").unwrap()).as_deref(), Some("https://a.b"));
+        assert_eq!(link_at(text, text.find("See").unwrap()), None);
+        assert_eq!(heading_offset(text, "getting-started"), Some(0));
+        assert_eq!(heading_offset(text, "custom"), text.find("## Two"));
+        assert_eq!(heading_offset(text, "nope"), None);
+
+        assert_eq!(clicked_task("• ", "☐ a"), Some(0));
+        assert_eq!(clicked_task("• ☑ a\n• ☐", " b"), Some(1));
+        assert_eq!(clicked_task("• ☐ a", "b"), None);
     }
 
     #[test]
