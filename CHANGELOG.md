@@ -1,5 +1,11 @@
 # Changelog
 
+## Planck 1.0.11 (2026-11-18)
+
+### Bug Fixes
+- Untitled files stay open when you open a folder or space, instead of disappearing until you closed it again
+- Files opened without a folder stay open when you open your first folder or space
+
 ## Planck 1.0.10 (2026-11-17)
 
 ### Bug Fixes

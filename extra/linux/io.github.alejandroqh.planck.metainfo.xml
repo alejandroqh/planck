@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.0.11" date="2026-11-18" type="stable">
+            <description>
+                <p>Untitled files, and files opened without a folder, stay open when you open a folder or space.</p>
+            </description>
+        </release>
         <release version="1.0.10" date="2026-11-17" type="stable">
             <description>
                 <p>Help only offers an update once its download is ready and shows why an update failed, and the macOS app runs natively on Intel Macs too.</p>
