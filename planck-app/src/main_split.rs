@@ -37,7 +37,7 @@ use crate::{
     config::color::PlanckColor,
     doc::{DiagnosticData, Doc, DocContent, DocHistory, EditorDiagnostic},
     editor::{
-        EditorData, EditorInfo,
+        EditorData, EditorInfo, EditorViewKind,
         diff::DiffEditorData,
         location::{EditorLocation, EditorPosition},
     },
@@ -1357,6 +1357,11 @@ impl MainSplitData {
                     if !is_same_diff_editor(diff_editor_id, left, right)
                         && let Some(diff_editor) = diff_editors.get(diff_editor_id)
                     {
+                        // The current diff is based on the old documents. Reset both
+                        // views before swapping documents so screen-line computation
+                        // cannot apply stale diff ranges to the new buffers.
+                        diff_editor.left.kind.set(EditorViewKind::Normal);
+                        diff_editor.right.kind.set(EditorViewKind::Normal);
                         diff_editor.left.update_doc(left.clone());
                         diff_editor.right.update_doc(right.clone());
                     }
