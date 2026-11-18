@@ -77,7 +77,10 @@ use crate::{
     keypress::{EventRef, KeyPressData, KeyPressFocus, condition::Condition},
     listener::Listener,
     lsp::path_from_url,
-    main_split::{MainSplitData, SplitData, SplitDirection, SplitMoveDirection},
+    main_split::{
+        CarriedTabs, MainSplitData, SplitData, SplitDirection, SplitInfo,
+        SplitMoveDirection,
+    },
     palette::{DEFAULT_RUN_TOML, PaletteData, PaletteStatus, kind::PaletteKind},
     panel::{
         call_hierarchy_view::{CallHierarchyData, CallHierarchyItemData},
@@ -325,11 +328,20 @@ fn add_folder_and_reopen(
 }
 
 impl WindowTabData {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cx: Scope,
         workspace: Arc<PlanckWorkspace>,
         window_common: Rc<WindowCommonData>,
+    ) -> Self {
+        Self::with_tabs(cx, workspace, window_common, CarriedTabs::default())
+    }
+
+    /// A window tab that also opens `carried`, the tabs of the one it replaces.
+    pub fn with_tabs(
+        cx: Scope,
+        workspace: Arc<PlanckWorkspace>,
+        window_common: Rc<WindowCommonData>,
+        carried: CarriedTabs,
     ) -> Self {
         let cx = cx.create_child();
         let db: Arc<PlanckDb> = use_context().unwrap();
@@ -440,9 +452,18 @@ impl WindowTabData {
                 .and_then(|info| info.explorer.as_ref()),
         );
 
-        if let Some(info) = workspace_info.as_ref() {
+        let mut split = workspace_info.as_ref().map(|info| info.split.clone());
+        if !carried.editors.is_empty() {
+            split
+                .get_or_insert_with(|| SplitInfo {
+                    children: Vec::new(),
+                    direction: SplitDirection::Horizontal,
+                })
+                .add_carried(carried);
+        }
+        if let Some(split) = split {
             let root_split = main_split.root_split;
-            info.split.to_data(main_split.clone(), None, root_split);
+            split.to_data(main_split.clone(), None, root_split);
         } else {
             let root_split = main_split.root_split;
             let root_split_data = {

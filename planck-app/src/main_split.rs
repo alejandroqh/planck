@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -36,12 +36,13 @@ use crate::{
     command::InternalCommand,
     doc::{DiagnosticData, Doc, DocContent, DocHistory, EditorDiagnostic},
     editor::{
-        EditorData,
+        EditorData, EditorInfo,
         diff::DiffEditorData,
         location::{EditorLocation, EditorPosition},
     },
     editor_tab::{
-        EditorTabChild, EditorTabChildSource, EditorTabData, EditorTabInfo,
+        EditorTabChild, EditorTabChildInfo, EditorTabChildSource, EditorTabData,
+        EditorTabInfo,
     },
     id::{
         DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
@@ -172,6 +173,153 @@ impl SplitInfo {
         });
         split_data
     }
+
+    /// Moves the editors that `take` picks out of this layout into `carried`, in
+    /// tab order, and drops the editor tabs and splits left empty.
+    pub fn take_editors(
+        &mut self,
+        take: &impl Fn(&EditorInfo) -> bool,
+        carried: &mut CarriedTabs,
+    ) {
+        self.children.retain_mut(|child| match child {
+            SplitContentInfo::EditorTab(tab) => {
+                tab.take_editors(take, carried);
+                !tab.children.is_empty()
+            }
+            SplitContentInfo::Split(split) => {
+                split.take_editors(take, carried);
+                !split.children.is_empty()
+            }
+        });
+    }
+
+    /// Adds the tabs carried over from the window tab this one replaces, after the
+    /// active tab of the focused editor tab. A file already open here keeps its own
+    /// tab and takes the carried unsaved text, and an Untitled file whose name is
+    /// taken gets the next free number.
+    pub fn add_carried(&mut self, carried: CarriedTabs) {
+        let mut untitled_names = HashSet::new();
+        self.for_each_editor(&mut |editor| {
+            if let DocContent::Scratch { name, .. } = &editor.content {
+                untitled_names.insert(name.clone());
+            }
+        });
+
+        let mut adding = Vec::new();
+        let mut active = None;
+        // The same file open in two editor tabs comes over once.
+        let mut carried_once = HashSet::new();
+        for (i, mut info) in carried.editors.into_iter().enumerate() {
+            if !carried_once.insert(info.content.clone()) {
+                continue;
+            }
+            if let Some(path) = info.content.path() {
+                let mut open_here = false;
+                self.for_each_editor(&mut |editor| {
+                    if editor.content.path() == Some(path) {
+                        open_here = true;
+                        if info.unsaved.is_some() {
+                            editor.unsaved.clone_from(&info.unsaved);
+                        }
+                    }
+                });
+                if open_here {
+                    continue;
+                }
+            }
+            if let DocContent::Scratch { name, .. } = &mut info.content {
+                if untitled_names.contains(name) {
+                    *name = next_untitled_name(&untitled_names);
+                }
+                untitled_names.insert(name.clone());
+            }
+            if carried.active == Some(i) {
+                active = Some(adding.len());
+            }
+            adding.push(EditorTabChildInfo::Editor(info));
+        }
+        if adding.is_empty() {
+            return;
+        }
+
+        if self.find_tab(&|_| true).is_none() {
+            self.children
+                .push(SplitContentInfo::EditorTab(EditorTabInfo {
+                    active: 0,
+                    is_focus: true,
+                    children: Vec::new(),
+                }));
+        }
+        let has_focus = self.find_tab(&|tab| tab.is_focus).is_some();
+        let Some(tab) = self.find_tab(&|tab| tab.is_focus || !has_focus) else {
+            return;
+        };
+        let at = if tab.children.is_empty() {
+            0
+        } else {
+            (tab.active + 1).min(tab.children.len())
+        };
+        tab.children.splice(at..at, adding);
+        if let Some(active) = active {
+            tab.active = at + active;
+        }
+    }
+
+    fn for_each_editor(&mut self, f: &mut impl FnMut(&mut EditorInfo)) {
+        for child in &mut self.children {
+            match child {
+                SplitContentInfo::EditorTab(tab) => {
+                    for child in &mut tab.children {
+                        if let EditorTabChildInfo::Editor(editor) = child {
+                            f(editor);
+                        }
+                    }
+                }
+                SplitContentInfo::Split(split) => split.for_each_editor(f),
+            }
+        }
+    }
+
+    /// The first editor tab, depth first, that `pick` accepts.
+    fn find_tab(
+        &mut self,
+        pick: &impl Fn(&EditorTabInfo) -> bool,
+    ) -> Option<&mut EditorTabInfo> {
+        for child in &mut self.children {
+            match child {
+                SplitContentInfo::EditorTab(tab) => {
+                    if pick(tab) {
+                        return Some(tab);
+                    }
+                }
+                SplitContentInfo::Split(split) => {
+                    if let Some(tab) = split.find_tab(pick) {
+                        return Some(tab);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// The Untitled name numbered after every one in `names`.
+fn next_untitled_name(names: &HashSet<String>) -> String {
+    let last = names
+        .iter()
+        .filter_map(|name| name.strip_prefix("Untitled-")?.parse::<usize>().ok())
+        .max()
+        .unwrap_or(0);
+    format!("Untitled-{}", last + 1)
+}
+
+/// Editor tabs taken out of a window tab's layout, to reopen in the window tab
+/// that replaces it.
+#[derive(Default)]
+pub struct CarriedTabs {
+    pub editors: Vec<EditorInfo>,
+    /// Which of `editors` was in view.
+    pub active: Option<usize>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -3056,4 +3204,222 @@ pub enum TabCloseKind {
     CloseOther,
     CloseToLeft,
     CloseToRight,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn untitled(name: &str, text: Option<&str>) -> EditorInfo {
+        let content = DocContent::Scratch {
+            id: BufferId::next(),
+            name: name.to_string(),
+        };
+        editor(content, text)
+    }
+
+    fn file(path: &str) -> EditorInfo {
+        edited(path, None)
+    }
+
+    fn edited(path: &str, text: Option<&str>) -> EditorInfo {
+        let content = DocContent::File {
+            path: PathBuf::from(path),
+            read_only: false,
+        };
+        editor(content, text)
+    }
+
+    fn editor(content: DocContent, unsaved: Option<&str>) -> EditorInfo {
+        EditorInfo {
+            content,
+            unsaved: unsaved.map(String::from),
+            offset: 0,
+            scroll_offset: (0.0, 0.0),
+            confirmed: None,
+            markdown_rich: false,
+        }
+    }
+
+    fn tab(active: usize, editors: Vec<EditorInfo>) -> SplitContentInfo {
+        SplitContentInfo::EditorTab(EditorTabInfo {
+            active,
+            is_focus: false,
+            children: editors
+                .into_iter()
+                .map(EditorTabChildInfo::Editor)
+                .collect(),
+        })
+    }
+
+    fn focused(active: usize, editors: Vec<EditorInfo>) -> SplitContentInfo {
+        let mut tab = tab(active, editors);
+        if let SplitContentInfo::EditorTab(tab) = &mut tab {
+            tab.is_focus = true;
+        }
+        tab
+    }
+
+    fn split(children: Vec<SplitContentInfo>) -> SplitInfo {
+        SplitInfo {
+            direction: SplitDirection::Vertical,
+            children,
+        }
+    }
+
+    fn take_untitled(split: &mut SplitInfo) -> CarriedTabs {
+        let mut carried = CarriedTabs::default();
+        split.take_editors(&|e| e.is_untitled_with_text(), &mut carried);
+        carried
+    }
+
+    fn label(editor: &EditorInfo) -> String {
+        match &editor.content {
+            DocContent::File { path, .. } => path.display().to_string(),
+            DocContent::Scratch { name, .. } => name.clone(),
+            _ => String::new(),
+        }
+    }
+
+    fn labels<'a>(editors: impl IntoIterator<Item = &'a EditorInfo>) -> Vec<String> {
+        editors.into_iter().map(label).collect()
+    }
+
+    fn only_tab(split: &SplitInfo) -> &EditorTabInfo {
+        match split.children.as_slice() {
+            [SplitContentInfo::EditorTab(tab)] => tab,
+            _ => panic!("expected one editor tab"),
+        }
+    }
+
+    fn tab_editors(tab: &EditorTabInfo) -> Vec<&EditorInfo> {
+        tab.children
+            .iter()
+            .filter_map(|child| match child {
+                EditorTabChildInfo::Editor(editor) => Some(editor),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn take_editors_takes_untitled_files_with_text() {
+        let mut layout = split(vec![
+            tab(
+                2,
+                vec![
+                    file("a.rs"),
+                    untitled("Untitled-1", Some("one")),
+                    file("b.rs"),
+                    untitled("Untitled-2", None),
+                    untitled("Untitled-3", Some("")),
+                ],
+            ),
+            SplitContentInfo::Split(split(vec![tab(
+                0,
+                vec![untitled("Untitled-4", Some("four"))],
+            )])),
+        ]);
+
+        let carried = take_untitled(&mut layout);
+
+        assert_eq!(labels(&carried.editors), ["Untitled-1", "Untitled-4"]);
+        // Empty Untitled files stay; the tab and split left empty go.
+        let tab = only_tab(&layout);
+        assert_eq!(tab.children.len(), 4);
+        // b.rs was active and still is.
+        assert_eq!(tab.active, 1);
+    }
+
+    #[test]
+    fn take_editors_activates_the_next_tab_when_the_active_one_goes() {
+        let mut layout = split(vec![focused(
+            1,
+            vec![
+                file("a.rs"),
+                untitled("Untitled-1", Some("one")),
+                file("b.rs"),
+            ],
+        )]);
+        let carried = take_untitled(&mut layout);
+        assert_eq!(only_tab(&layout).active, 1);
+        // The tab in view is remembered, to show it again.
+        assert_eq!(carried.active, Some(0));
+
+        let mut layout = split(vec![tab(
+            2,
+            vec![
+                file("a.rs"),
+                file("b.rs"),
+                untitled("Untitled-1", Some("one")),
+            ],
+        )]);
+        let carried = take_untitled(&mut layout);
+        assert_eq!(only_tab(&layout).active, 1);
+        // Not the focused editor tab, so not the tab in view.
+        assert_eq!(carried.active, None);
+    }
+
+    #[test]
+    fn add_carried_opens_tabs_after_the_active_one() {
+        let mut layout = split(vec![
+            tab(0, vec![file("other.rs")]),
+            focused(0, vec![file("main.rs"), file("lib.rs")]),
+        ]);
+
+        layout.add_carried(CarriedTabs {
+            editors: vec![file("/notes.md"), untitled("Untitled-1", Some("one"))],
+            active: Some(1),
+        });
+
+        let SplitContentInfo::EditorTab(tab) = &layout.children[1] else {
+            panic!("expected an editor tab");
+        };
+        assert_eq!(
+            labels(tab_editors(tab)),
+            ["main.rs", "/notes.md", "Untitled-1", "lib.rs"]
+        );
+        // The tab that was in view still is.
+        assert_eq!(tab.active, 2);
+    }
+
+    #[test]
+    fn add_carried_merges_files_open_here_and_renames_untitled() {
+        let mut layout = split(vec![focused(
+            0,
+            vec![file("a.rs"), untitled("Untitled-1", Some("here"))],
+        )]);
+
+        let edits = edited("a.rs", Some("edited"));
+        let one = untitled("Untitled-1", Some("carried"));
+        layout.add_carried(CarriedTabs {
+            // The same Untitled file open in two editor tabs comes over once.
+            editors: vec![one.clone(), edits, one, file("b.rs")],
+            active: None,
+        });
+
+        let tab = only_tab(&layout);
+        let editors = tab_editors(tab);
+        assert_eq!(
+            labels(editors.iter().copied()),
+            ["a.rs", "Untitled-2", "b.rs", "Untitled-1"]
+        );
+        // a.rs keeps its tab and takes the carried unsaved text.
+        assert_eq!(editors[0].unsaved.as_deref(), Some("edited"));
+        assert_eq!(editors[1].unsaved.as_deref(), Some("carried"));
+        assert_eq!(tab.active, 0);
+    }
+
+    #[test]
+    fn add_carried_into_an_empty_layout() {
+        let mut layout = split(Vec::new());
+        layout.add_carried(CarriedTabs {
+            editors: vec![file("a.rs"), file("b.rs")],
+            active: Some(1),
+        });
+        let tab = only_tab(&layout);
+        assert_eq!(labels(tab_editors(tab)), ["a.rs", "b.rs"]);
+        assert!(tab.is_focus);
+        assert_eq!(tab.active, 1);
+    }
 }

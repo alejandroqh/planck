@@ -286,13 +286,19 @@ impl PlanckDb {
         if !data.keep_session {
             return Ok(());
         }
-        let workspace = (*data.workspace).clone();
-        let workspace_info = data.workspace_info();
+        self.insert_window_tab_info(&data, &data.workspace_info())
+    }
 
-        self.insert_workspace(&workspace, &workspace_info)?;
-        // self.insert_unsaved_buffer(main_split)?;
-
-        Ok(())
+    /// Saves `info` as the session of the window tab `data`.
+    pub fn insert_window_tab_info(
+        &self,
+        data: &WindowTabData,
+        info: &WorkspaceInfo,
+    ) -> Result<()> {
+        if !data.keep_session {
+            return Ok(());
+        }
+        self.insert_workspace(&data.workspace, info)
     }
 
     pub fn get_panel_orders(&self) -> Result<PanelOrder> {

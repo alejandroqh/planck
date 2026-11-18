@@ -113,6 +113,12 @@ pub struct EditorInfo {
 }
 
 impl EditorInfo {
+    /// An Untitled file with text in it, which is lost if its tab goes away.
+    pub fn is_untitled_with_text(&self) -> bool {
+        matches!(self.content, DocContent::Scratch { .. })
+            && self.unsaved.as_ref().is_some_and(|text| !text.is_empty())
+    }
+
     pub fn to_data(
         &self,
         data: MainSplitData,

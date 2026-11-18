@@ -29,7 +29,7 @@ use crate::{
         DiffEditorId, EditorTabId, KeymapId, SettingsId, SplitId,
         ThemeColorSettingsId,
     },
-    main_split::{Editors, MainSplitData},
+    main_split::{CarriedTabs, Editors, MainSplitData},
     window_tab::WindowTabData,
 };
 
@@ -114,6 +114,34 @@ impl EditorTabInfo {
             editor_tabs.insert(editor_tab_id, editor_tab_data);
         });
         editor_tab_data
+    }
+
+    /// Moves the editors that `take` picks into `carried`. The active tab stays
+    /// active, or the one after it if it was taken.
+    pub fn take_editors(
+        &mut self,
+        take: &impl Fn(&EditorInfo) -> bool,
+        carried: &mut CarriedTabs,
+    ) {
+        let active = self.active;
+        let mut taken_before_active = 0;
+        let children = std::mem::take(&mut self.children);
+        for (i, child) in children.into_iter().enumerate() {
+            match child {
+                EditorTabChildInfo::Editor(info) if take(&info) => {
+                    if i < active {
+                        taken_before_active += 1;
+                    }
+                    if i == active && self.is_focus {
+                        carried.active = Some(carried.editors.len());
+                    }
+                    carried.editors.push(info);
+                }
+                child => self.children.push(child),
+            }
+        }
+        self.active = (active - taken_before_active)
+            .min(self.children.len().saturating_sub(1));
     }
 }
 

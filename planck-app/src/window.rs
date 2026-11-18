@@ -19,6 +19,7 @@ use crate::{
     db::PlanckDb,
     keypress::EventRef,
     listener::Listener,
+    main_split::CarriedTabs,
     update::ReleaseInfo,
     window_tab::WindowTabData,
     workspace::PlanckWorkspace,
@@ -200,21 +201,39 @@ impl WindowData {
                 }
 
                 let active = self.active.get_untracked();
-                self.window_tabs.with_untracked(|window_tabs| {
-                    if !window_tabs.is_empty() {
-                        let active = window_tabs.len().saturating_sub(1).min(active);
-                        if let Err(err) =
-                            db.insert_window_tab(window_tabs[active].1.clone())
-                        {
-                            tracing::error!("{:?}", err);
-                        }
+                // Tabs that belong to no folder move to the new workspace, instead
+                // of staying out of sight in the saved session of the one replaced:
+                // Untitled files always, loose files when a first folder opens.
+                let carried = self.window_tabs.with_untracked(|window_tabs| {
+                    let mut carried = CarriedTabs::default();
+                    if window_tabs.is_empty() {
+                        return carried;
                     }
+                    let active = window_tabs.len().saturating_sub(1).min(active);
+                    let old_window_tab = &window_tabs[active].1;
+                    let carry_files = old_window_tab.workspace.is_files_only()
+                        && !workspace.is_files_only();
+                    let mut info = old_window_tab.workspace_info();
+                    info.split.take_editors(
+                        &|editor| {
+                            editor.is_untitled_with_text()
+                                || (carry_files && editor.content.is_file())
+                        },
+                        &mut carried,
+                    );
+                    if let Err(err) =
+                        db.insert_window_tab_info(old_window_tab, &info)
+                    {
+                        tracing::error!("{:?}", err);
+                    }
+                    carried
                 });
 
-                let window_tab = Rc::new(WindowTabData::new(
+                let window_tab = Rc::new(WindowTabData::with_tabs(
                     self.scope,
                     Arc::new(workspace),
                     self.common.clone(),
+                    carried,
                 ));
                 self.window_tabs.update(|window_tabs| {
                     if window_tabs.is_empty() {
