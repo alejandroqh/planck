@@ -49,7 +49,7 @@ use planck_rpc::{
     terminal::TermId,
 };
 use serde_json::Value;
-use tracing::{Level, debug, error, event};
+use tracing::{debug, error};
 
 use crate::{
     about::AboutData,
@@ -735,26 +735,28 @@ impl WindowTabData {
 
             // ==== Files / Folders ====
             OpenFolder => {
+                let window_command = self.common.window_common.window_command;
+                let mut options = FileDialogOptions::new()
+                    .title("Choose a folder")
+                    .select_directories();
+                options = if let Some(parent) =
+                    self.workspace.path.as_ref().and_then(|x| x.parent())
                 {
-                    let window_command = self.common.window_common.window_command;
-                    let mut options = FileDialogOptions::new().title("Choose a folder").select_directories();
-                    options = if let Some(parent) = self.workspace.path.as_ref().and_then(|x| x.parent()) {
-                        options.force_starting_directory(parent)
-                    } else {
-                        options
-                    };
-                    open_file(options, move |file| {
-                        if let Some(mut file) = file {
-                            let Some(path) = file.path.pop() else {
-                                tracing::error!("No path");
-                                return;
-                            };
-                            let workspace = PlanckWorkspace::from_path(path);
-                            window_command
-                                .send(WindowCommand::SetWorkspace { workspace });
-                        }
-                    });
-                }
+                    options.force_starting_directory(parent)
+                } else {
+                    options
+                };
+                open_file(options, move |file| {
+                    if let Some(mut file) = file {
+                        let Some(path) = file.path.pop() else {
+                            tracing::error!("No path");
+                            return;
+                        };
+                        let workspace = PlanckWorkspace::from_path(path);
+                        window_command
+                            .send(WindowCommand::SetWorkspace { workspace });
+                    }
+                });
             }
             OpenSpace => {
                 let window_command = self.common.window_common.window_command;
@@ -775,7 +777,8 @@ impl WindowTabData {
                 let mut options = FileDialogOptions::new()
                     .title("Choose a folder to add")
                     .select_directories();
-                if let Some(parent) = current.path.as_ref().and_then(|p| p.parent()) {
+                if let Some(parent) = current.path.as_ref().and_then(|p| p.parent())
+                {
                     options = options.force_starting_directory(parent);
                 }
                 open_file(options, move |file| {
@@ -793,18 +796,25 @@ impl WindowTabData {
                         .title("Save the new space")
                         .allowed_types(vec![SPACE_FILE_SPEC]);
                     if let Some(first) = folders.first() {
-                        let name = first.file_name().unwrap_or_default().to_string_lossy();
-                        options = options.default_name(format!("{name}.{SPACE_EXTENSION}"));
+                        let name =
+                            first.file_name().unwrap_or_default().to_string_lossy();
+                        options = options
+                            .default_name(format!("{name}.{SPACE_EXTENSION}"));
                         if let Some(parent) = first.parent() {
                             options = options.force_starting_directory(parent);
                         }
                     }
                     save_as(options, move |file| {
-                        if let Some(mut space) = file.and_then(|mut f| f.path.pop()) {
+                        if let Some(mut space) = file.and_then(|mut f| f.path.pop())
+                        {
                             if !PlanckWorkspace::is_space_file(&space) {
                                 space.set_extension(SPACE_EXTENSION);
                             }
-                            add_folder_and_reopen(window_command, space, folders.clone());
+                            add_folder_and_reopen(
+                                window_command,
+                                space,
+                                folders.clone(),
+                            );
                         }
                     });
                 });
@@ -817,22 +827,20 @@ impl WindowTabData {
                 }
             }
             OpenFile => {
-                {
-                    let internal_command = self.common.internal_command;
-                    let options = FileDialogOptions::new().title("Choose a file");
-                    open_file(options, move |file| {
-                        if let Some(mut file) = file {
-                            internal_command.send(InternalCommand::OpenFile {
-                                path: if let Some(path) = file.path.pop() {
-                                    path
-                                } else {
-                                    tracing::error!("No path");
-                                    return;
-                                },
-                            })
-                        }
-                    });
-                }
+                let internal_command = self.common.internal_command;
+                let options = FileDialogOptions::new().title("Choose a file");
+                open_file(options, move |file| {
+                    if let Some(mut file) = file {
+                        internal_command.send(InternalCommand::OpenFile {
+                            path: if let Some(path) = file.path.pop() {
+                                path
+                            } else {
+                                tracing::error!("No path");
+                                return;
+                            },
+                        })
+                    }
+                });
             }
             NewFile => {
                 self.main_split.new_file();
@@ -1171,7 +1179,7 @@ impl WindowTabData {
             }
             Palette => {
                 self.palette.run(PaletteKind::File);
-            },
+            }
             PaletteSymbol => {
                 self.palette.run(PaletteKind::DocumentSymbol);
             }
@@ -1431,33 +1439,39 @@ impl WindowTabData {
                                     }
                                 },
                             );
-                            std::thread::Builder::new().name("RestartToUpdate".to_owned()).spawn(move || {
-                                let do_update = || -> anyhow::Result<()> {
-                                    // Ask GitHub again: the copy the menu was built
-                                    // from can be an hour old, from before CI
-                                    // attached this platform's file.
-                                    let release =
-                                        crate::update::get_latest_release()?;
+                            std::thread::Builder::new()
+                                .name("RestartToUpdate".to_owned())
+                                .spawn(move || {
+                                    let do_update = || -> anyhow::Result<()> {
+                                        // Ask GitHub again: the copy the menu was built
+                                        // from can be an hour old, from before CI
+                                        // attached this platform's file.
+                                        let release =
+                                            crate::update::get_latest_release()?;
 
-                                    let src =
-                                        crate::update::download_release(&release)?;
+                                        let src = crate::update::download_release(
+                                            &release,
+                                        )?;
 
-                                    let path =
-                                        crate::update::extract(&src, &process_path)?;
+                                        let path = crate::update::extract(
+                                            &src,
+                                            &process_path,
+                                        )?;
 
-                                    crate::update::restart(&path)?;
+                                        crate::update::restart(&path)?;
 
-                                    Ok(())
-                                };
+                                        Ok(())
+                                    };
 
-                                // A successful update relaunches Planck; a failed
-                                // one is shown, not only logged.
-                                let result = do_update().map_err(|err| {
-                                    error!("Failed to update: {err:#}");
-                                    format!("{err:#}")
-                                });
-                                send(result);
-                            }).unwrap();
+                                    // A successful update relaunches Planck; a failed
+                                    // one is shown, not only logged.
+                                    let result = do_update().map_err(|err| {
+                                        error!("Failed to update: {err:#}");
+                                        format!("{err:#}")
+                                    });
+                                    send(result);
+                                })
+                                .unwrap();
                         }
                     }
                 }
@@ -1465,23 +1479,9 @@ impl WindowTabData {
 
             // ==== Movement ====
             #[cfg(target_os = "macos")]
-            InstallToPATH => {
-                self.common.internal_command.send(
-                    InternalCommand::ExecuteProcess {
-                        program: String::from("osascript"),
-                        arguments: vec![String::from("-e"), format!(r#"do shell script "ln -sf '{}' /usr/local/bin/planck" with administrator privileges"#, std::env::args().next().unwrap())],
-                    }
-                )
-            }
+            InstallToPATH => self.shell_command(true),
             #[cfg(target_os = "macos")]
-            UninstallFromPATH => {
-                self.common.internal_command.send(
-                    InternalCommand::ExecuteProcess {
-                        program: String::from("osascript"),
-                        arguments: vec![String::from("-e"), String::from(r#"do shell script "rm /usr/local/bin/planck" with administrator privileges"#)],
-                    }
-                )
-            }
+            UninstallFromPATH => self.shell_command(false),
             JumpLocationForward => {
                 self.main_split.jump_location_forward(false);
             }
@@ -1506,11 +1506,14 @@ impl WindowTabData {
                     self.main_split.active_editor.get_untracked()
                 {
                     self.show_panel(PanelKind::FileExplorer);
-                    self.panel
-                        .section_open(PanelSection::FileExplorer).update(|x| {
-                        *x = true;
-                    });
-                    if let DocContent::File {path, ..} = editor_data.doc().content.get_untracked() {
+                    self.panel.section_open(PanelSection::FileExplorer).update(
+                        |x| {
+                            *x = true;
+                        },
+                    );
+                    if let DocContent::File { path, .. } =
+                        editor_data.doc().content.get_untracked()
+                    {
                         self.file_explorer.reveal_in_file_tree(path);
                     }
                 }
@@ -1519,25 +1522,33 @@ impl WindowTabData {
                 if let Some(editor_data) =
                     self.main_split.active_editor.get_untracked()
                 {
-                    if let DocContent::File {path, ..} = editor_data.doc().content.get_untracked() {
-                        let offset = editor_data.cursor().with_untracked(|c| c.offset());
-                        let line = editor_data.doc()
+                    if let DocContent::File { path, .. } =
+                        editor_data.doc().content.get_untracked()
+                    {
+                        let offset =
+                            editor_data.cursor().with_untracked(|c| c.offset());
+                        let line = editor_data
+                            .doc()
                             .buffer
                             .with_untracked(|buffer| buffer.line_of_offset(offset));
                         self.common.proxy.git_get_remote_file_url(
                             path,
                             create_ext_action(self.scope, move |result| {
                                 if let Ok(ProxyResponse::GitGetRemoteFileUrl {
-                                              file_url
-                                          }) = result
+                                    file_url,
+                                }) = result
                                 {
-                                    if let Err(err) = open::that(format!("{}#L{}", file_url, line)) {
-                                        error!("Failed to open file in github: {}",  err);
+                                    if let Err(err) =
+                                        open::that(format!("{}#L{}", file_url, line))
+                                    {
+                                        error!(
+                                            "Failed to open file in github: {}",
+                                            err
+                                        );
                                     }
                                 }
                             }),
                         );
-
                     }
                 }
             }
@@ -1545,16 +1556,18 @@ impl WindowTabData {
                 if let Some(editor_data) =
                     self.main_split.active_editor.get_untracked()
                 {
-                    if let DocContent::File {path, ..} = editor_data.doc().content.get_untracked() {
+                    if let DocContent::File { path, .. } =
+                        editor_data.doc().content.get_untracked()
+                    {
                         let path = path.parent().unwrap_or(&path);
                         if !path.exists() {
                             return;
                         }
                         if let Err(err) = open::that(path) {
                             error!(
-                            "Failed to reveal file in system file explorer: {}",
-                            err
-                        );
+                                "Failed to reveal file in system file explorer: {}",
+                                err
+                            );
                         }
                     }
                 }
@@ -1587,13 +1600,11 @@ impl WindowTabData {
                     let name = editor_data.word_at_cursor();
                     if !name.is_empty() {
                         let mut args_str = name.split(" ");
-                        let program = args_str.next().map(|x| x.to_string()).unwrap();
-                        let args: Vec<String> = args_str.map(|x| x.to_string()).collect();
-                        let args = if args.is_empty() {
-                            None
-                        } else {
-                            Some(args)
-                        };
+                        let program =
+                            args_str.next().map(|x| x.to_string()).unwrap();
+                        let args: Vec<String> =
+                            args_str.map(|x| x.to_string()).collect();
+                        let args = if args.is_empty() { None } else { Some(args) };
 
                         let config = RunConfig {
                             name,
@@ -1627,13 +1638,15 @@ impl WindowTabData {
                     let internal_command = self.common.internal_command;
 
                     internal_command.send(InternalCommand::MakeConfirmed);
-                    internal_command.send(InternalCommand::GoToLocation { location: EditorLocation {
-                        path,
-                        position: Some(EditorPosition::Offset(offset)),
-                        scroll_offset: None,
-                        ignore_unconfirmed: false,
-                        same_editor_tab: false,
-                    } });
+                    internal_command.send(InternalCommand::GoToLocation {
+                        location: EditorLocation {
+                            path,
+                            position: Some(EditorPosition::Offset(offset)),
+                            scroll_offset: None,
+                            ignore_unconfirmed: false,
+                            same_editor_tab: false,
+                        },
+                    });
                 }
             }
             AddRunConfig => {
@@ -2092,24 +2105,6 @@ impl WindowTabData {
                 left_path,
                 right_path,
             } => self.main_split.open_diff_files(left_path, right_path),
-            InternalCommand::ExecuteProcess { program, arguments } => {
-                let mut cmd = match std::process::Command::new(program)
-                    .args(arguments)
-                    .spawn()
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        return event!(Level::ERROR, "Failed to spawn process: {e}");
-                    }
-                };
-
-                match cmd.wait() {
-                    Ok(v) => event!(Level::TRACE, "Process exited with status {v}"),
-                    Err(e) => {
-                        event!(Level::ERROR, "Process exited with an error: {e}")
-                    }
-                };
-            }
             InternalCommand::ClearTerminalBuffer {
                 view_id,
                 tab_index,
@@ -2798,6 +2793,97 @@ impl WindowTabData {
         self.messages.update(|messages| {
             messages.push((title.to_string(), message.clone()));
         });
+    }
+
+    /// Links `/usr/local/bin/planck` to this Planck, or removes the link, so
+    /// `planck file.txt` in a terminal opens the file here. macOS asks for an
+    /// admin password, since `/usr/local/bin` belongs to root.
+    #[cfg(target_os = "macos")]
+    fn shell_command(&self, install: bool) {
+        const LINK: &str = "/usr/local/bin/planck";
+        let messages = self.messages;
+        let show = move |typ: MessageType, message: String| {
+            messages.update(|messages| {
+                messages.push((
+                    "Shell command".to_string(),
+                    ShowMessageParams { typ, message },
+                ));
+            });
+        };
+
+        // Resolved, so running Planck through the link doesn't link it to itself.
+        let exe = match env::current_exe().and_then(|p| p.canonicalize()) {
+            Ok(exe) => exe,
+            Err(err) => {
+                show(MessageType::ERROR, format!("Can't find Planck: {err}"));
+                return;
+            }
+        };
+        let linked = std::fs::read_link(LINK).ok();
+        let script = if install {
+            let path = exe.to_string_lossy();
+            // A link into the disk image or a translocated copy breaks later.
+            if path.starts_with("/Volumes/") || path.contains("/AppTranslocation/") {
+                show(
+                    MessageType::WARNING,
+                    "Move Planck to the Applications folder first, then install \
+                     the shell command again."
+                        .to_string(),
+                );
+                return;
+            }
+            if linked.as_ref() == Some(&exe) {
+                show(
+                    MessageType::INFO,
+                    "Already installed: `planck file.txt` opens the file in Planck."
+                        .to_string(),
+                );
+                return;
+            }
+            r#"do shell script "mkdir -p /usr/local/bin && ln -sf " & quoted form of item 1 of argv & " /usr/local/bin/planck" with administrator privileges"#
+        } else {
+            // Only a link is removed, never a `planck` someone put there by hand.
+            if linked.is_none() {
+                show(MessageType::INFO, "`planck` isn't installed.".to_string());
+                return;
+            }
+            r#"do shell script "rm -f /usr/local/bin/planck" with administrator privileges"#
+        };
+
+        // `Err(None)`: the password prompt was cancelled, so nothing is shown.
+        let send = create_ext_action(
+            self.common.scope,
+            move |result: Result<(), Option<String>>| match result {
+                Ok(()) if install => show(
+                    MessageType::INFO,
+                    "Installed: `planck file.txt` in a terminal opens the file in \
+                     Planck."
+                        .to_string(),
+                ),
+                Ok(()) => show(MessageType::INFO, "`planck` removed.".to_string()),
+                Err(Some(err)) => show(MessageType::ERROR, err),
+                Err(None) => {}
+            },
+        );
+        std::thread::Builder::new()
+            .name("ShellCommand".to_owned())
+            .spawn(move || {
+                // The path goes in as an argument, so no quote in it can break the script.
+                let output = std::process::Command::new("osascript")
+                    .args(["-e", "on run argv", "-e", script, "-e", "end run"])
+                    .arg(&exe)
+                    .output();
+                send(match output {
+                    Ok(out) if out.status.success() => Ok(()),
+                    Ok(out) => {
+                        let err = String::from_utf8_lossy(&out.stderr);
+                        Err((!err.contains("(-128)"))
+                            .then(|| err.trim().to_string()))
+                    }
+                    Err(err) => Err(Some(err.to_string())),
+                });
+            })
+            .unwrap();
     }
 
     pub fn update_code_lens_id(&self, view_id: Option<ViewId>) {

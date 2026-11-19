@@ -54,6 +54,8 @@ disabled = true
 
 Pre-built packages for Linux (`.deb` and `.rpm`, amd64 and arm64) and macOS (Apple Silicon `.dmg`) are published on the [releases page](https://github.com/alejandroqh/planck/releases). To compile from source, follow the [guide](docs/building-from-source.md).
 
+The Linux packages install the `planck` command. On macOS, choose **Planck › Install 'planck' Shell Command** once. After that, `planck file.txt` opens the file in Planck, and so does `planck .` for the current folder. If Planck is already running, they open in its window.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).

@@ -4131,11 +4131,22 @@ pub fn window_menu(data: &WindowTabData) -> Menu {
             .separator()
             .entry(MenuItem::new("Settings...").action(move || {
                 workbench_command.send(PlanckWorkbenchCommand::OpenSettings);
-            }))
-            .separator()
-            .entry(MenuItem::new("Quit Planck").action(move || {
-                workbench_command.send(PlanckWorkbenchCommand::Quit);
             }));
+        // The app comes as a disk image with no installer, so this is how
+        // `planck` gets on the PATH. The Linux packages install it.
+        #[cfg(target_os = "macos")]
+        {
+            menu = menu.entry(
+                MenuItem::new("Install 'planck' Shell Command").action(move || {
+                    workbench_command.send(PlanckWorkbenchCommand::InstallToPATH)
+                }),
+            );
+        }
+        menu =
+            menu.separator()
+                .entry(MenuItem::new("Quit Planck").action(move || {
+                    workbench_command.send(PlanckWorkbenchCommand::Quit);
+                }));
         if cfg!(target_os = "macos") {
             menu = menu
                 .separator()

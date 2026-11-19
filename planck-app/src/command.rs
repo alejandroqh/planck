@@ -556,12 +556,12 @@ pub enum PlanckWorkbenchCommand {
     SaveAll,
 
     #[cfg(target_os = "macos")]
-    #[strum(message = "Install Planck to PATH")]
+    #[strum(message = "Shell Command: Install 'planck' in PATH")]
     #[strum(serialize = "install_to_path")]
     InstallToPATH,
 
     #[cfg(target_os = "macos")]
-    #[strum(message = "Uninstall Planck from PATH")]
+    #[strum(message = "Shell Command: Uninstall 'planck' from PATH")]
     #[strum(serialize = "uninstall_from_path")]
     UninstallFromPATH,
 
@@ -782,10 +782,6 @@ pub enum InternalCommand {
     OpenDiffFiles {
         left_path: PathBuf,
         right_path: PathBuf,
-    },
-    ExecuteProcess {
-        program: String,
-        arguments: Vec<String>,
     },
     ClearTerminalBuffer {
         view_id: ViewId,
