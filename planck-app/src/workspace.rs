@@ -41,6 +41,11 @@ impl PlanckWorkspace {
         self.path.is_none() && self.space.is_none()
     }
 
+    /// Whether both open the same folder or space, and so share one saved session.
+    pub fn is_same(&self, other: &Self) -> bool {
+        self.to_string() == other.to_string()
+    }
+
     pub fn is_space_file(path: &Path) -> bool {
         path.extension().is_some_and(|e| e == SPACE_EXTENSION)
     }

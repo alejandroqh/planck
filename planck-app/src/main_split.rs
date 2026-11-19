@@ -907,6 +907,115 @@ impl MainSplitData {
         editor_tab
     }
 
+    /// The active editor tab, or the first one when none is active, or a new
+    /// one filling the layout when there is none.
+    fn active_or_new_editor_tab(&self) -> RwSignal<EditorTabData> {
+        let editor_tabs = self.editor_tabs.get_untracked();
+        if let Some(editor_tab) = self
+            .active_editor_tab
+            .get_untracked()
+            .and_then(|id| editor_tabs.get(&id))
+        {
+            return *editor_tab;
+        }
+        if let Some((editor_tab_id, editor_tab)) = editor_tabs.iter().next() {
+            self.active_editor_tab.set(Some(*editor_tab_id));
+            return *editor_tab;
+        }
+        let editor_tab_id = EditorTabId::next();
+        let editor_tab = self.new_editor_tab(editor_tab_id, self.root_split);
+        let root_split = self
+            .splits
+            .with_untracked(|splits| splits.get(&self.root_split).cloned().unwrap());
+        root_split.update(|root_split| {
+            root_split.children = vec![(
+                root_split.scope.create_rw_signal(1.0),
+                SplitContent::EditorTab(editor_tab_id),
+            )];
+        });
+        self.active_editor_tab.set(Some(editor_tab_id));
+        editor_tab
+    }
+
+    /// Opens the tabs carried over from a window tab that closed, after the
+    /// active tab of the active editor tab, like `SplitInfo::add_carried` does
+    /// for a window tab being built: a file already open here keeps its tab and
+    /// takes the carried unsaved text, and an Untitled file whose name is taken
+    /// gets the next free number.
+    pub fn open_carried(&self, carried: CarriedTabs) {
+        let mut untitled_names: HashSet<String> = self
+            .scratch_docs
+            .with_untracked(|docs| docs.keys().cloned().collect());
+        let mut carried_once = HashSet::new();
+        let mut adding = Vec::new();
+        let mut active = None;
+        for (i, mut info) in carried.editors.into_iter().enumerate() {
+            if !carried_once.insert(info.content.clone()) {
+                continue;
+            }
+            match &mut info.content {
+                DocContent::File { path, .. } => {
+                    let doc =
+                        self.docs.with_untracked(|docs| docs.get(path).cloned());
+                    // A new doc gets the unsaved text once it loads, in get_doc.
+                    if let (Some(doc), Some(unsaved)) = (&doc, &info.unsaved) {
+                        doc.reload(Rope::from(unsaved.as_str()), false);
+                    }
+                    let open_here = self.editors.with_editors_untracked(|editors| {
+                        editors.values().any(|editor| {
+                            editor.doc().content.with_untracked(|content| {
+                                content.path() == Some(&*path)
+                            })
+                        })
+                    });
+                    if open_here {
+                        continue;
+                    }
+                }
+                DocContent::Scratch { name, .. } => {
+                    if untitled_names.contains(name) {
+                        *name = next_untitled_name(&untitled_names);
+                    }
+                    untitled_names.insert(name.clone());
+                }
+                DocContent::Local | DocContent::History(_) => continue,
+            }
+            if carried.active == Some(i) {
+                active = Some(adding.len());
+            }
+            adding.push(info);
+        }
+        if adding.is_empty() {
+            return;
+        }
+
+        let editor_tab = self.active_or_new_editor_tab();
+        let (editor_tab_id, scope) =
+            editor_tab.with_untracked(|tab| (tab.editor_tab_id, tab.scope));
+        let children: Vec<_> = adding
+            .into_iter()
+            .map(|info| {
+                (
+                    scope.create_rw_signal(0),
+                    scope.create_rw_signal(Rect::ZERO),
+                    EditorTabChildInfo::Editor(info)
+                        .to_data(self.clone(), editor_tab_id),
+                )
+            })
+            .collect();
+        editor_tab.update(|tab| {
+            let at = if tab.children.is_empty() {
+                0
+            } else {
+                (tab.active + 1).min(tab.children.len())
+            };
+            tab.children.splice(at..at, children);
+            if let Some(active) = active {
+                tab.active = at + active;
+            }
+        });
+    }
+
     fn get_editor_tab_child(
         &self,
         source: EditorTabChildSource,
@@ -915,36 +1024,12 @@ impl MainSplitData {
     ) -> EditorTabChild {
         let config = self.common.config.get_untracked();
 
+        let active_editor_tab = self.active_or_new_editor_tab();
         let active_editor_tab_id = self.active_editor_tab.get_untracked();
         let editor_tabs = self.editor_tabs.get_untracked();
-        let active_editor_tab = active_editor_tab_id
-            .and_then(|id| editor_tabs.get(&id))
-            .cloned();
 
         let editors = self.editors;
         let diff_editors = self.diff_editors.get_untracked();
-
-        let active_editor_tab = if let Some(editor_tab) = active_editor_tab {
-            editor_tab
-        } else if editor_tabs.is_empty() {
-            let editor_tab_id = EditorTabId::next();
-            let editor_tab = self.new_editor_tab(editor_tab_id, self.root_split);
-            let root_split = self.splits.with_untracked(|splits| {
-                splits.get(&self.root_split).cloned().unwrap()
-            });
-            root_split.update(|root_split| {
-                root_split.children = vec![(
-                    root_split.scope.create_rw_signal(1.0),
-                    SplitContent::EditorTab(editor_tab_id),
-                )];
-            });
-            self.active_editor_tab.set(Some(editor_tab_id));
-            editor_tab
-        } else {
-            let (editor_tab_id, editor_tab) = editor_tabs.iter().next().unwrap();
-            self.active_editor_tab.set(Some(*editor_tab_id));
-            *editor_tab
-        };
 
         let is_same_diff_editor =
             |diff_editor_id: &DiffEditorId, left: &Rc<Doc>, right: &Rc<Doc>| {

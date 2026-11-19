@@ -12,9 +12,3 @@ Icon=io.github.alejandroqh.planck
 Exec=planck %F
 Terminal=false
 MimeType=text/plain;inode/directory;
-Actions=new-window;
-
-[Desktop Action new-window]
-Name=New Window
-Exec=planck --new %F
-Icon=io.github.alejandroqh.planck

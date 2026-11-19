@@ -348,10 +348,6 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Reload Window")]
     ReloadWindow,
 
-    #[strum(message = "New Window")]
-    #[strum(serialize = "new_window")]
-    NewWindow,
-
     #[strum(message = "Close Window")]
     #[strum(serialize = "close_window")]
     CloseWindow,
@@ -821,6 +817,5 @@ pub enum WindowCommand {
     },
     NextWorkspaceTab,
     PreviousWorkspaceTab,
-    NewWindow,
     CloseWindow,
 }

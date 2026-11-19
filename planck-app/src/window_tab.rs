@@ -97,7 +97,7 @@ use crate::{
         panel::TerminalPanelData,
     },
     tracing::*,
-    window::{WindowCommonData, WindowData},
+    window::WindowCommonData,
     workspace::{PlanckWorkspace, SPACE_EXTENSION, WorkspaceInfo, add_space_folder},
 };
 
@@ -175,8 +175,6 @@ pub struct WindowTabData {
     pub scope: Scope,
     pub window_tab_id: WindowTabId,
     pub workspace: Arc<PlanckWorkspace>,
-    /// False for a second files-only tab: it starts empty and is never saved.
-    pub keep_session: bool,
     pub palette: PaletteData,
     pub main_split: MainSplitData,
     pub file_explorer: FileExplorerData,
@@ -295,22 +293,6 @@ const SPACE_FILE_SPEC: FileSpec = FileSpec {
 };
 
 /// Adds folders to a space file, then reopens the space in the current window tab.
-/// Whether a tab that keeps the files-only session is open in any window.
-fn files_only_tab_open() -> bool {
-    use_context::<RwSignal<im::HashMap<floem::window::WindowId, WindowData>>>()
-        .is_some_and(|windows| {
-            windows.with_untracked(|windows| {
-                windows.values().any(|w| {
-                    w.window_tabs.with_untracked(|tabs| {
-                        tabs.iter().any(|(_, t)| {
-                            t.keep_session && t.workspace.is_files_only()
-                        })
-                    })
-                })
-            })
-        })
-}
-
 fn add_folder_and_reopen(
     window_command: Listener<WindowCommand>,
     space: PathBuf,
@@ -352,16 +334,9 @@ impl WindowTabData {
             workspace
         };
 
-        // Every files-only tab shares one saved session, so only the first one
-        // open restores and saves it; the saved Untitled files never open twice.
-        // shortcut: workspace tabs restored inside one window don't see each
-        // other here, give files-only sessions their own ids if that bites.
-        let keep_session = !workspace.is_files_only() || !files_only_tab_open();
-        let workspace_info = if keep_session {
-            db.get_workspace_info(&workspace).ok()
-        } else {
-            None
-        };
+        // The window has one tab per workspace, so this tab alone restores and
+        // saves the workspace's session.
+        let workspace_info = db.get_workspace_info(&workspace).ok();
 
         let config = PlanckConfig::load(&workspace);
         let planck_command = Listener::new_empty(cx);
@@ -594,7 +569,6 @@ impl WindowTabData {
             scope: cx,
             window_tab_id: WindowTabId::next(),
             workspace,
-            keep_session,
             palette,
             main_split,
             terminal,
@@ -1039,12 +1013,6 @@ impl WindowTabData {
                         workspace: (*self.workspace).clone(),
                     },
                 );
-            }
-            NewWindow => {
-                self.common
-                    .window_common
-                    .window_command
-                    .send(WindowCommand::NewWindow);
             }
             CloseWindow => {
                 self.common

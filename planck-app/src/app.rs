@@ -3,7 +3,6 @@ use std::os::windows::process::CommandExt;
 use std::{
     io::{BufReader, IsTerminal, Read, Write},
     ops::Range,
-    path::PathBuf,
     process::Stdio,
     rc::Rc,
     sync::{
@@ -118,8 +117,10 @@ mod logging;
 #[clap(version=meta::VERSION)]
 #[derive(Debug)]
 struct Cli {
-    /// Launch new window even if Planck is already running
-    #[clap(short, long, action)]
+    /// Ignored: Planck has one window, so paths always open in it. Kept so
+    /// launchers and scripts that still pass it don't fail.
+    #[clap(short, long, action, hide = true)]
+    #[allow(dead_code)]
     new: bool,
     /// Don't return instantly when opened in a terminal
     #[clap(short, long, action)]
@@ -142,7 +143,6 @@ pub struct AppInfo {
 #[derive(Clone)]
 pub enum AppCommand {
     SaveApp,
-    NewWindow { folder: Option<PathBuf> },
     CloseWindow(WindowId),
     WindowGotFocus(WindowId),
     WindowClosed(WindowId),
@@ -191,56 +191,35 @@ impl AppData {
             .or_else(|| windows.iter().next().map(|(_, window)| window.clone()))
     }
 
-    fn default_window_config(&self) -> WindowConfig {
-        WindowConfig::default()
+    fn window_config(&self, size: Size, pos: Point) -> WindowConfig {
+        let config = WindowConfig::default()
             .apply_default_theme(false)
             .title("Planck")
-    }
-
-    pub fn new_window(&self, folder: Option<PathBuf>, files: Vec<PathObject>) {
-        let config = self
-            .active_window()
-            .map(|window| {
-                self.default_window_config()
-                    .size(window.common.size.get_untracked())
-                    .position(window.position.get_untracked() + (50.0, 50.0))
-            })
-            .or_else(|| {
-                let db: Arc<PlanckDb> = use_context().unwrap();
-                db.get_window().ok().map(|info| {
-                    self.default_window_config()
-                        .size(info.size)
-                        .position(info.pos)
-                })
-            })
-            .unwrap_or_else(|| {
-                self.default_window_config().size(Size::new(800.0, 600.0))
-            });
-        let config = if cfg!(target_os = "macos")
+            .size(size)
+            .position(pos);
+        if cfg!(target_os = "macos")
             || self.config.get_untracked().core.custom_titlebar
         {
             config.show_titlebar(false)
         } else {
             config
-        };
-        let workspace = folder.map(PlanckWorkspace::from_path).unwrap_or_default();
+        }
+    }
+
+    /// Opens `paths` in Planck's one window, or brings the window back with the
+    /// saved session when it was closed: macOS keeps the app running without it.
+    pub fn open_window(&self, paths: Vec<PathObject>) {
+        if let Some(window_tab) = self.active_window_tab() {
+            window_tab.open_paths(&paths);
+            floem::action::focus_window();
+            return;
+        }
+        let db: Arc<PlanckDb> = use_context().unwrap();
+        let (info, files) = saved_window(&db, paths);
+        let config = self.window_config(info.size, info.pos);
         let app_data = self.clone();
         floem::new_window(
-            move |window_id| {
-                app_data.app_view(
-                    window_id,
-                    WindowInfo {
-                        size: Size::ZERO,
-                        pos: Point::ZERO,
-                        maximised: false,
-                        tabs: TabsInfo {
-                            active_tab: 0,
-                            workspaces: vec![workspace],
-                        },
-                    },
-                    files.clone(),
-                )
-            },
+            move |window_id| app_data.app_view(window_id, info, files),
             Some(config),
         );
     }
@@ -277,148 +256,25 @@ impl AppData {
             AppCommand::CloseWindow(window_id) => {
                 floem::close_window(window_id);
             }
-            AppCommand::NewWindow { folder } => {
-                self.new_window(folder, vec![]);
-            }
             AppCommand::WindowGotFocus(window_id) => {
                 self.active_window.set(window_id);
             }
         }
     }
 
-    fn create_windows(
+    /// Planck's one window, with the saved session and `paths`.
+    fn create_window(
         &self,
-        db: Arc<PlanckDb>,
+        db: &PlanckDb,
         paths: Vec<PathObject>,
     ) -> floem::Application {
-        let mut app = floem::Application::new();
-
-        let mut initial_windows = 0;
-
-        // Split user input into known existing directors and
-        // file paths that exist or not
-        let (dirs, files): (Vec<&PathObject>, Vec<&PathObject>) = paths
-            .iter()
-            .partition(|p| p.is_dir || PlanckWorkspace::is_space_file(&p.path));
-
-        let files: Vec<PathObject> = files.into_iter().cloned().collect();
-        let mut files = if files.is_empty() { None } else { Some(files) };
-
-        if !dirs.is_empty() {
-            // There were directories specified, so we'll load those as windows
-
-            // Use the last opened window's size and position as the default
-            let (size, mut pos) = db
-                .get_window()
-                .map(|i| (i.size, i.pos))
-                .unwrap_or_else(|_| (Size::new(800.0, 600.0), Point::new(0.0, 0.0)));
-
-            for dir in dirs {
-                let info = WindowInfo {
-                    size,
-                    pos,
-                    maximised: false,
-                    tabs: TabsInfo {
-                        active_tab: 0,
-                        workspaces: vec![PlanckWorkspace::from_path(
-                            dir.path.to_owned(),
-                        )],
-                    },
-                };
-
-                pos += (50.0, 50.0);
-
-                let config = self
-                    .default_window_config()
-                    .size(info.size)
-                    .position(info.pos);
-                let config = if cfg!(target_os = "macos")
-                    || self.config.get_untracked().core.custom_titlebar
-                {
-                    config.show_titlebar(false)
-                } else {
-                    config
-                };
-                let app_data = self.clone();
-                let files = files.take().unwrap_or_default();
-                app = app.window(
-                    move |window_id| app_data.app_view(window_id, info, files),
-                    Some(config),
-                );
-                initial_windows += 1;
-            }
-        } else {
-            // No dirs specified, so we'll load the last windows and open any files in the first one
-            match db.get_app() {
-                Ok(app_info) => {
-                    for info in app_info.windows {
-                        let config = self
-                            .default_window_config()
-                            .size(info.size)
-                            .position(info.pos);
-                        let config = if cfg!(target_os = "macos")
-                            || self.config.get_untracked().core.custom_titlebar
-                        {
-                            config.show_titlebar(false)
-                        } else {
-                            config
-                        };
-                        let app_data = self.clone();
-                        let files = files.take().unwrap_or_default();
-                        app = app.window(
-                            move |window_id| {
-                                app_data.app_view(window_id, info, files)
-                            },
-                            Some(config),
-                        );
-                        initial_windows += 1;
-                    }
-                }
-                Err(err) => {
-                    tracing::error!("{:?}", err);
-                }
-            }
-        }
-
-        if initial_windows == 0 {
-            let mut info = db.get_window().unwrap_or_else(|_| WindowInfo {
-                size: Size::new(800.0, 600.0),
-                pos: Point::ZERO,
-                maximised: false,
-                tabs: TabsInfo {
-                    active_tab: 0,
-                    workspaces: vec![PlanckWorkspace::default()],
-                },
-            });
-            info.tabs = TabsInfo {
-                active_tab: 0,
-                workspaces: vec![PlanckWorkspace::default()],
-            };
-            let config = self
-                .default_window_config()
-                .size(info.size)
-                .position(info.pos);
-            let config = if cfg!(target_os = "macos")
-                || self.config.get_untracked().core.custom_titlebar
-            {
-                config.show_titlebar(false)
-            } else {
-                config
-            };
-            let app_data = self.clone();
-            app = app.window(
-                move |window_id| {
-                    app_data.app_view(
-                        window_id,
-                        info,
-                        files.take().unwrap_or_default(),
-                    )
-                },
-                Some(config),
-            );
-        }
-
-        app
+        let (info, files) = saved_window(db, paths);
+        let config = self.window_config(info.size, info.pos);
+        let app_data = self.clone();
+        floem::Application::new().window(
+            move |window_id| app_data.app_view(window_id, info, files),
+            Some(config),
+        )
     }
 
     fn app_view(
@@ -631,32 +487,61 @@ impl AppData {
                 app_command.send(AppCommand::WindowClosed(window_id));
             })
             .on_event_stop(EventListener::DroppedFile, move |event: &Event| {
-                if let Event::DroppedFile(file) = event {
-                    if file.path.is_dir()
-                        || PlanckWorkspace::is_space_file(&file.path)
-                    {
-                        app_command.send(AppCommand::NewWindow {
-                            folder: Some(file.path.clone()),
-                        });
-                    } else if let Some(win_tab_data) =
-                        window_data.active_window_tab()
-                    {
-                        win_tab_data.common.internal_command.send(
-                            InternalCommand::GoToLocation {
-                                location: EditorLocation {
-                                    path: file.path.clone(),
-                                    position: None,
-                                    scroll_offset: None,
-                                    ignore_unconfirmed: false,
-                                    same_editor_tab: false,
-                                },
-                            },
-                        )
-                    }
+                // A folder or space opens in a tab of this window, a file in an editor.
+                if let Event::DroppedFile(file) = event
+                    && let Some(win_tab_data) = window_data.active_window_tab()
+                {
+                    win_tab_data.open_paths(&[PathObject::from_path(
+                        file.path.clone(),
+                        file.path.is_dir(),
+                    )]);
                 }
             })
             .debug_name("App View")
     }
+}
+
+/// The window as it was saved plus a tab for each folder or space in `paths`,
+/// the last one active, and the files in `paths` to open in the active tab.
+fn saved_window(
+    db: &PlanckDb,
+    paths: Vec<PathObject>,
+) -> (WindowInfo, Vec<PathObject>) {
+    let (dirs, files): (Vec<PathObject>, Vec<PathObject>) = paths
+        .into_iter()
+        .partition(|p| p.is_dir || PlanckWorkspace::is_space_file(&p.path));
+
+    let (size, pos) = db
+        .get_window()
+        .map(|info| (info.size, info.pos))
+        .unwrap_or_else(|_| (Size::new(800.0, 600.0), Point::ZERO));
+    let mut info = WindowInfo {
+        size,
+        pos,
+        maximised: false,
+        tabs: TabsInfo {
+            active_tab: 0,
+            workspaces: Vec::new(),
+        },
+    };
+    match db.get_app() {
+        // Older versions could save several windows: their tabs come together here.
+        Ok(app) => {
+            for (i, window) in app.windows.into_iter().enumerate() {
+                if i == 0 {
+                    info.size = window.size;
+                    info.pos = window.pos;
+                    info.tabs.active_tab = window.tabs.active_tab;
+                }
+                info.tabs.workspaces.extend(window.tabs.workspaces);
+            }
+        }
+        Err(err) => tracing::error!("{:?}", err),
+    }
+    for dir in dirs {
+        info.tabs.active_tab = info.tabs.add(PlanckWorkspace::from_path(dir.path));
+    }
+    (info, files)
 }
 
 /// The top bar of an Editor tab. Includes the tab forward/back buttons, the tab scroll bar and the new split and tab close all button.
@@ -3865,19 +3750,16 @@ pub fn launch() {
         return;
     }
 
-    // If the cli is not requesting a new window, we try to open
-    // in the existing Planck process
-    if !cli.new {
-        match get_socket() {
-            Ok(socket) => {
-                if let Err(e) = try_open_in_existing_process(socket, &cli.paths) {
-                    trace!(TraceLevel::ERROR, "failed to open path(s): {e}");
-                };
-                return;
-            }
-            Err(err) => {
-                tracing::error!("{:?}", err);
-            }
+    // Planck has one window: when it's running, the paths open there.
+    match get_socket() {
+        Ok(socket) => {
+            if let Err(e) = try_open_in_existing_process(socket, &cli.paths) {
+                trace!(TraceLevel::ERROR, "failed to open path(s): {e}");
+            };
+            return;
+        }
+        Err(err) => {
+            tracing::error!("{:?}", err);
         }
     }
 
@@ -3945,10 +3827,7 @@ pub fn launch() {
         tracing_handle: reload_handle,
         config,
     };
-    // New window tabs look here for other open files-only sessions.
-    provide_context(windows);
-
-    let app = app_data.create_windows(db.clone(), cli.paths);
+    let app = app_data.create_window(&db, cli.paths);
 
     {
         let app_data = app_data.clone();
@@ -4054,29 +3933,8 @@ pub fn launch() {
         let app_data = app_data.clone();
         create_effect(move |_| {
             if let Some(CoreNotification::OpenPaths { paths }) = notification.get() {
-                if let Some(window_tab) = app_data.active_window_tab() {
-                    window_tab.open_paths(&paths);
-                    // focus window after open doc
-                    floem::action::focus_window();
-                } else {
-                    // The app outlives its last window (macOS keeps it in the dock), so
-                    // a relaunch must bring a window back instead of doing nothing.
-                    let (dirs, files): (Vec<PathObject>, Vec<PathObject>) =
-                        paths.iter().cloned().partition(|p| {
-                            p.is_dir || PlanckWorkspace::is_space_file(&p.path)
-                        });
-                    if dirs.is_empty() {
-                        app_data.new_window(None, files);
-                    } else {
-                        let mut files = Some(files);
-                        for dir in dirs {
-                            app_data.new_window(
-                                Some(dir.path),
-                                files.take().unwrap_or_default(),
-                            );
-                        }
-                    }
-                }
+                // Launched again: the paths open in the window that's running.
+                app_data.open_window(paths);
             }
         });
         std::thread::Builder::new()
@@ -4108,7 +3966,7 @@ pub fn launch() {
             has_visible_windows,
         } => {
             if !has_visible_windows {
-                app_data.new_window(None, vec![]);
+                app_data.open_window(vec![]);
             }
         }
     })

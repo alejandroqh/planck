@@ -149,9 +149,6 @@ impl PlanckDb {
     }
 
     pub fn save_window_tab(&self, data: &WindowTabData) -> Result<()> {
-        if !data.keep_session {
-            return Ok(());
-        }
         let workspace = (*data.workspace).clone();
         let workspace_info = data.workspace_info();
 
@@ -283,9 +280,6 @@ impl PlanckDb {
     }
 
     pub fn insert_window_tab(&self, data: Rc<WindowTabData>) -> Result<()> {
-        if !data.keep_session {
-            return Ok(());
-        }
         self.insert_window_tab_info(&data, &data.workspace_info())
     }
 
@@ -295,9 +289,6 @@ impl PlanckDb {
         data: &WindowTabData,
         info: &WorkspaceInfo,
     ) -> Result<()> {
-        if !data.keep_session {
-            return Ok(());
-        }
         self.insert_workspace(&data.workspace, info)
     }
 
