@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.1.0" date="2026-11-19" type="stable">
+            <description>
+                <p>Planck has one window, unsaved Untitled files are never lost, and the planck command opens files from a terminal.</p>
+            </description>
+        </release>
         <release version="1.0.11" date="2026-11-18" type="stable">
             <description>
                 <p>Untitled files, and files opened without a folder, stay open when you open a folder or space.</p>

@@ -1,5 +1,17 @@
 # Changelog
 
+## Planck 1.1.0 (2026-11-19)
+
+### Features
+- `planck file.txt` opens files from a terminal. The Linux packages already install the command; on macOS, choose Planck › Install 'planck' Shell Command once
+
+### Changes
+- Planck has one window. Opening a file or folder while Planck is running, from a terminal, Finder or a file manager, opens it in that window
+- Opening a folder or space that's already open switches to its tab instead of opening a second one
+
+### Bug Fixes
+- Unsaved Untitled files are never lost: they come back after closing and reopening the window, and closing a folder's tab moves them to the next tab
+
 ## Planck 1.0.11 (2026-11-18)
 
 ### Bug Fixes
