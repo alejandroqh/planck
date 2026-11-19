@@ -1,11 +1,11 @@
 name: Mirror grammars
 
 # Copies a release of lapce/tree-sitter-grammars (compiled tree-sitter grammars
-# and highlight queries) into a release of this repository, which Planck
-# downloads at launch, and adds the Linux arm64 grammars that upstream does not
-# ship. Keep GRAMMARS_RELEASE in planck-app/src/app/grammars.rs in sync with the
-# tag this creates. The release is a prerelease so the macOS updater, which
-# follows the latest release, never picks it.
+# and highlight queries) into a release of this repository, which Planck's build
+# embeds, and adds the Linux arm64 grammars that upstream does not ship. Keep
+# RELEASE and the hashes in planck-app/build.rs in sync with the tag this
+# creates. The release is a prerelease so it never shows as the
+# latest release.
 on:
   workflow_dispatch:
     inputs:

@@ -13,7 +13,6 @@ backtrace          = { workspace = true }
 chrono             = { workspace = true }
 clap               = { workspace = true }
 crossbeam-channel  = { workspace = true }
-flate2             = { workspace = true }
 globset            = { workspace = true }
 im                 = { workspace = true }
 include_dir        = { workspace = true }
@@ -29,7 +28,6 @@ notify             = { workspace = true }
 once_cell          = { workspace = true }
 parking_lot        = { workspace = true }
 rayon              = { workspace = true }
-reqwest            = { workspace = true }
 image              = { version = "0.25", default-features = false }
 smallvec           = { workspace = true }
 strum              = { workspace = true }
@@ -38,7 +36,6 @@ serde              = { workspace = true }
 serde_json         = { workspace = true }
 regex              = { workspace = true }
 tar                = { workspace = true }
-tempfile           = { workspace = true }
 thiserror          = { workspace = true }
 toml               = { workspace = true }
 toml_edit          = { workspace = true }
@@ -60,23 +57,20 @@ config           = { version = "=0.13.4", default-features = false, features = [
 structdesc       = { path = "../libs/structdesc" }
 base64           = { version = "0.21.7" }
 sha2             = { version = "0.10.8" }
-zip              = { version = "0.6.6", default-features = false, features = ["deflate"] }
 percent-encoding = { version = "2.3.1" }
 sysinfo          = { version = "0.40.3", default-features = false, features = ["system", "disk"] }
-
-[target.'cfg(target_os="macos")'.dependencies]
-fs_extra = "1.2.0"
-dmg      = "0.1.1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
 features  = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"]
 
 [features]
-default        = ["updater", "vendored-fonts"]
+default        = ["vendored-fonts"]
 portable       = ["planck-core/portable"]
-updater        = []
 vendored-fonts = []
+
+[build-dependencies]
+sha2 = { version = "0.10.8" }
 
 [dev-dependencies]
 criterion = "0.5"

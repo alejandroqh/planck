@@ -544,9 +544,6 @@ pub enum PlanckWorkbenchCommand {
     #[strum(message = "Toggle Markdown Rich View")]
     ToggleMarkdownRichView,
 
-    #[strum(serialize = "restart_to_update")]
-    RestartToUpdate,
-
     #[strum(serialize = "show_about")]
     #[strum(message = "About Planck")]
     ShowAbout,

@@ -103,7 +103,6 @@ use crate::{
     text_input::TextInputBuilder,
     title::{title, window_controls_view},
     tracing::*,
-    update::ReleaseInfo,
     window::{TabsInfo, WindowData, WindowInfo},
     window_tab::{DragContent, Focus, WindowTabData},
     workspace::PlanckWorkspace,
@@ -155,8 +154,6 @@ pub struct AppData {
     pub window_scale: RwSignal<f64>,
     pub app_command: Listener<AppCommand>,
     pub app_terminated: RwSignal<bool>,
-    /// The latest release information
-    pub latest_release: RwSignal<Arc<Option<ReleaseInfo>>>,
     pub watcher: Arc<notify::RecommendedWatcher>,
     pub tracing_handle: Handle<Targets>,
     pub config: RwSignal<Arc<PlanckConfig>>,
@@ -289,7 +286,6 @@ impl AppData {
             app_view_id,
             info,
             self.window_scale,
-            self.latest_release.read_only(),
             self.app_command,
         );
 
@@ -3763,9 +3759,6 @@ pub fn launch() {
         }
     }
 
-    #[cfg(feature = "updater")]
-    crate::update::cleanup();
-
     if let Err(err) = planck_proxy::register_planck_path() {
         tracing::error!("{:?}", err);
     }
@@ -3786,7 +3779,6 @@ pub fn launch() {
     provide_context(db.clone());
 
     let window_scale = scope.create_rw_signal(1.0);
-    let latest_release = scope.create_rw_signal(Arc::new(None));
     let app_command = Listener::new_empty(scope);
 
     let (tx, rx) = channel();
@@ -3822,7 +3814,6 @@ pub fn launch() {
         window_scale,
         app_terminated: scope.create_rw_signal(false),
         watcher: Arc::new(watcher),
-        latest_release,
         app_command,
         tracing_handle: reload_handle,
         config,
@@ -3863,66 +3854,13 @@ pub fn launch() {
             }
         });
         std::thread::Builder::new()
-            .name("FindGrammar".to_owned())
+            .name("UnpackGrammars".to_owned())
             .spawn(move || {
-                use self::grammars::*;
-                let updated = match find_grammar_release() {
-                    Ok(release) => {
-                        let mut updated = false;
-                        match fetch_grammars(&release) {
-                            Err(e) => {
-                                trace!(
-                                    TraceLevel::ERROR,
-                                    "failed to fetch grammars: {e}"
-                                );
-                            }
-                            Ok(u) => updated |= u,
-                        }
-                        match fetch_queries(&release) {
-                            Err(e) => {
-                                trace!(
-                                    TraceLevel::ERROR,
-                                    "failed to fetch grammars: {e}"
-                                );
-                            }
-                            Ok(u) => updated |= u,
-                        }
-                        updated
-                    }
-                    Err(e) => {
-                        trace!(
-                            TraceLevel::ERROR,
-                            "failed to obtain release info: {e}"
-                        );
-                        false
-                    }
-                };
+                let updated = grammars::unpack_grammars().unwrap_or_else(|e| {
+                    trace!(TraceLevel::ERROR, "failed to unpack grammars: {e}");
+                    false
+                });
                 send(updated);
-            })
-            .unwrap();
-    }
-
-    #[cfg(feature = "updater")]
-    {
-        let (tx, rx) = sync_channel(1);
-        let notification = create_signal_from_channel(rx);
-        let latest_release = app_data.latest_release;
-        create_effect(move |_| {
-            if let Some(release) = notification.get() {
-                latest_release.set(Arc::new(Some(release)));
-            }
-        });
-        std::thread::Builder::new()
-            .name("PlanckUpdater".to_owned())
-            .spawn(move || {
-                loop {
-                    if let Ok(release) = crate::update::get_latest_release() {
-                        if let Err(err) = tx.send(release) {
-                            tracing::error!("{:?}", err);
-                        }
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(60 * 60));
-                }
             })
             .unwrap();
     }
@@ -4162,21 +4100,6 @@ pub fn window_menu(data: &WindowTabData) -> Menu {
     menu
 }
 
-/// A newer Planck release than the running one, if there is one.
-pub fn available_update(
-    latest_release: ReadSignal<Arc<Option<ReleaseInfo>>>,
-) -> Option<String> {
-    latest_release
-        .get()
-        .as_ref()
-        .as_ref()
-        // Not until CI has attached this platform's file: the hourly check
-        // offers it once it's there.
-        .filter(|r| r.platform_asset().is_some())
-        .map(|r| r.version.clone())
-        .filter(|v| v != meta::VERSION)
-}
-
 /// One menu of the menu bar, by its name in `MENU_BAR`.
 pub fn menu_bar_menu(data: &WindowTabData, name: &str) -> Menu {
     let planck_command = data.common.planck_command;
@@ -4270,21 +4193,8 @@ pub fn menu_bar_menu(data: &WindowTabData, name: &str) -> Menu {
                 MenuItem::new("Theme Color Settings")
                     .action(workbench(W::OpenThemeColorSettings)),
             ),
-        _ => {
-            let update = available_update(data.common.window_common.latest_release);
-            let update_item = match update {
-                Some(v) if data.update_in_progress.get_untracked() => {
-                    MenuItem::new(format!("Update in progress ({v})")).enabled(false)
-                }
-                Some(v) => MenuItem::new(format!("Restart to update ({v})"))
-                    .action(workbench(W::RestartToUpdate)),
-                None => MenuItem::new("No update available").enabled(false),
-            };
-            Menu::new(name)
-                .entry(update_item)
-                .separator()
-                .entry(MenuItem::new("About Planck").action(workbench(W::ShowAbout)))
-        }
+        _ => Menu::new(name)
+            .entry(MenuItem::new("About Planck").action(workbench(W::ShowAbout))),
     }
 }
 fn tab_secondary_click(

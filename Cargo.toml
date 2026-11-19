@@ -54,7 +54,6 @@ chrono            = { version = "0.4" }
 clap              = { version = "4.5.0", default-features = false, features = ["std", "help", "usage", "derive"] }
 crossbeam-channel = { version = "0.5.12" }
 directories       = { version = "4.0.1" }
-flate2            = { version = "1.0" }
 git2              = { version = "0.21.0", features = ["vendored-openssl", "vendored-libgit2"] }
 globset           = { version = "0.4.14" }
 hashbrown         = { version = "0.14.5", features = ["serde"] }
@@ -69,14 +68,12 @@ parking_lot       = { version = "0.12.3" }
 rayon             = { version = "1.10.0" }
 regex             = { version = "1.10.5" }
 remain            = { version = "0.2" }
-reqwest           = { version = "0.11", features = ["blocking", "json", "socks"] }
 serde             = { version = "1.0" }
 serde_json        = { version = "1.0" }
 smallvec          = { version = "1.15.1" }
 strum             = { version = "0.27.1" }
 strum_macros      = { version = "0.27.1" }
 tar               = { version = "0.4" }
-tempfile          = { version = "3.10.1" }
 thiserror         = { version = "1.0" }
 toml              = { version = "*" }
 toml_edit         = { version = "0.20.2", features = ["serde"] }

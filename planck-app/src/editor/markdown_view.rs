@@ -3,8 +3,6 @@
 //! markdown so it is edited in place, and keys go to the editor as usual.
 
 use std::{
-    cell::RefCell,
-    collections::HashMap,
     ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,14 +12,13 @@ use floem::{
     AnyView, IntoView, Renderer, View,
     context::PaintCx,
     event::{Event, EventListener, EventPropagation},
-    ext_event::create_ext_action,
     peniko::{
         Color,
         kurbo::{Point, Rect},
     },
     pointer::{MouseButton, PointerInputEvent},
     reactive::{
-        Memo, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, create_effect,
+        Memo, RwSignal, SignalGet, SignalUpdate, SignalWith, create_effect,
         create_memo, create_rw_signal,
     },
     style::CursorStyle,
@@ -502,13 +499,8 @@ fn front_matter_view(
     grid(rows, config)
 }
 
-thread_local! {
-    /// Remote images by URL, fetched once per run.
-    static REMOTE_IMAGES: RefCell<HashMap<String, Option<Arc<Vec<u8>>>>> =
-        RefCell::new(HashMap::new());
-}
-
-/// An image from a local path (relative to the markdown file) or an http(s) URL.
+/// An image from a local path (relative to the markdown file). Remote images are
+/// never fetched: Planck makes no network connections.
 fn image_view(
     url: String,
     base_dir: Option<PathBuf>,
@@ -517,23 +509,7 @@ fn image_view(
     // None while loading, Some(None) when it could not be read.
     let data: RwSignal<Option<Option<Arc<Vec<u8>>>>> = create_rw_signal(None);
     if url.starts_with("http://") || url.starts_with("https://") {
-        match REMOTE_IMAGES.with(|c| c.borrow().get(&url).cloned()) {
-            Some(cached) => data.set(Some(cached)),
-            None => {
-                let key = url.clone();
-                let send = create_ext_action(
-                    Scope::current(),
-                    move |bytes: Option<Vec<u8>>| {
-                        let bytes = bytes.map(Arc::new);
-                        REMOTE_IMAGES
-                            .with(|c| c.borrow_mut().insert(key, bytes.clone()));
-                        data.try_update(|d| *d = Some(bytes));
-                    },
-                );
-                let url = url.clone();
-                std::thread::spawn(move || send(fetch_image(&url)));
-            }
-        }
+        data.set(Some(None));
     } else {
         let path = url.strip_prefix("file://").unwrap_or(&url);
         let path = Path::new(path.split(['#', '?']).next().unwrap_or(path));
@@ -571,14 +547,6 @@ fn missing_image(url: &str, color: Color) -> AnyView {
     label(move || text.clone())
         .style(move |s| s.color(color))
         .into_any()
-}
-
-fn fetch_image(url: &str) -> Option<Vec<u8>> {
-    let user_agent = format!("Planck/{}", planck_core::meta::VERSION);
-    let response = planck_proxy::get_url(url, Some(user_agent.as_str())).ok()?;
-    let bytes = response.error_for_status().ok()?.bytes().ok()?;
-    // Big downloads are not worth holding for a preview.
-    (bytes.len() <= 20 << 20).then(|| bytes.to_vec())
 }
 
 /// The image at its natural size, shrunk to fit `width` with its proportions kept.

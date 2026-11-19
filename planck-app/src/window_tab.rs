@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    env,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -30,13 +29,13 @@ use floem::{
 use indexmap::IndexMap;
 use itertools::Itertools;
 use lsp_types::{
-    CodeActionOrCommand, CodeLens, Diagnostic, MessageType, ProgressParams,
-    ProgressToken, ShowMessageParams,
+    CodeActionOrCommand, CodeLens, Diagnostic, ProgressParams, ProgressToken,
+    ShowMessageParams,
 };
 use notify::Watcher;
 use planck_core::{
-    command::FocusCommand, cursor::CursorAffinity, directory::Directory, meta,
-    mode::Mode, register::Register,
+    command::FocusCommand, cursor::CursorAffinity, directory::Directory, mode::Mode,
+    register::Register,
 };
 use planck_rpc::{
     RpcError,
@@ -193,7 +192,6 @@ pub struct WindowTabData {
     pub status_height: RwSignal<f64>,
     pub proxy: ProxyData,
     pub set_config: WriteSignal<Arc<PlanckConfig>>,
-    pub update_in_progress: RwSignal<bool>,
     pub progresses: RwSignal<IndexMap<ProgressToken, WorkProgress>>,
     pub messages: RwSignal<Vec<(String, ShowMessageParams)>>,
     pub common: Rc<CommonData>,
@@ -591,7 +589,6 @@ impl WindowTabData {
             status_height,
             proxy,
             set_config,
-            update_in_progress: cx.create_rw_signal(false),
             progresses: cx.create_rw_signal(IndexMap::new()),
             messages: cx.create_rw_signal(Vec::new()),
             common,
@@ -1406,75 +1403,6 @@ impl WindowTabData {
             // ==== UI ====
             ShowAbout => {
                 self.about_data.open();
-            }
-
-            // ==== Updating ====
-            RestartToUpdate => {
-                if let Some(release) = self
-                    .common
-                    .window_common
-                    .latest_release
-                    .get_untracked()
-                    .as_ref()
-                {
-                    let update_in_progress = self.update_in_progress;
-                    let messages = self.messages;
-                    if release.version != *meta::VERSION {
-                        if let Ok(process_path) = env::current_exe() {
-                            update_in_progress.set(true);
-                            let send = create_ext_action(
-                                self.common.scope,
-                                move |result: Result<(), String>| {
-                                    update_in_progress.set(false);
-                                    if let Err(message) = result {
-                                        messages.update(|messages| {
-                                            messages.push((
-                                                "Update failed".to_string(),
-                                                ShowMessageParams {
-                                                    typ: MessageType::ERROR,
-                                                    message,
-                                                },
-                                            ));
-                                        });
-                                    }
-                                },
-                            );
-                            std::thread::Builder::new()
-                                .name("RestartToUpdate".to_owned())
-                                .spawn(move || {
-                                    let do_update = || -> anyhow::Result<()> {
-                                        // Ask GitHub again: the copy the menu was built
-                                        // from can be an hour old, from before CI
-                                        // attached this platform's file.
-                                        let release =
-                                            crate::update::get_latest_release()?;
-
-                                        let src = crate::update::download_release(
-                                            &release,
-                                        )?;
-
-                                        let path = crate::update::extract(
-                                            &src,
-                                            &process_path,
-                                        )?;
-
-                                        crate::update::restart(&path)?;
-
-                                        Ok(())
-                                    };
-
-                                    // A successful update relaunches Planck; a failed
-                                    // one is shown, not only logged.
-                                    let result = do_update().map_err(|err| {
-                                        error!("Failed to update: {err:#}");
-                                        format!("{err:#}")
-                                    });
-                                    send(result);
-                                })
-                                .unwrap();
-                        }
-                    }
-                }
             }
 
             // ==== Movement ====
@@ -2800,6 +2728,10 @@ impl WindowTabData {
     /// admin password, since `/usr/local/bin` belongs to root.
     #[cfg(target_os = "macos")]
     fn shell_command(&self, install: bool) {
+        use std::env;
+
+        use lsp_types::MessageType;
+
         const LINK: &str = "/usr/local/bin/planck";
         let messages = self.messages;
         let show = move |typ: MessageType, message: String| {

@@ -46,11 +46,9 @@ jobs:
         with:
           tool: cargo-deb,cargo-generate-rpm
 
-      # No in-app updater on Linux: dnf and apt update the packages.
       - name: Build
         run: |
-          cargo build --locked --profile release-lto --package planck-app \
-            --no-default-features --features vendored-fonts
+          cargo build --locked --profile release-lto --package planck-app
           strip target/release-lto/planck
 
       - name: Package deb and rpm
@@ -87,7 +85,6 @@ jobs:
       - name: Rename
         run: |
           mkdir dist
-          # The in-app updater looks for this name.
           mv target/release-lto/macos/Planck.dmg dist/Planck-macos.dmg
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f

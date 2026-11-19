@@ -13,10 +13,7 @@ use floem::{
 };
 
 use crate::{
-    app::{
-        MENU_BAR, available_update, clickable_icon, menu_bar_menu,
-        not_clickable_icon,
-    },
+    app::{MENU_BAR, clickable_icon, menu_bar_menu, not_clickable_icon},
     command::{PlanckWorkbenchCommand, WindowCommand},
     config::{PlanckConfig, color::PlanckColor, icon::PlanckIcons},
     listener::Listener,
@@ -31,33 +28,27 @@ fn left(
     config: ReadSignal<Arc<PlanckConfig>>,
     num_window_tabs: Memo<usize>,
 ) -> impl View {
-    let latest_release = data.common.window_common.latest_release;
     let menus = MENU_BAR.map(|name| {
         let data = data.clone();
-        label(move || {
-            if name == "Help" && available_update(latest_release).is_some() {
-                "Help •".to_string()
-            } else {
-                name.to_string()
-            }
-        })
-        .popout_menu(move || menu_bar_menu(&data, name))
-        .style(move |s| {
-            let config = config.get();
-            s.padding_horiz(8.0)
-                .padding_vert(4.0)
-                .border_radius(6.0)
-                .hover(|s| {
-                    s.cursor(CursorStyle::Pointer).background(
-                        config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
-                    )
-                })
-                .active(|s| {
-                    s.background(
-                        config.color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
-                    )
-                })
-        })
+        label(move || name.to_string())
+            .popout_menu(move || menu_bar_menu(&data, name))
+            .style(move |s| {
+                let config = config.get();
+                s.padding_horiz(8.0)
+                    .padding_vert(4.0)
+                    .border_radius(6.0)
+                    .hover(|s| {
+                        s.cursor(CursorStyle::Pointer).background(
+                            config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
+                        )
+                    })
+                    .active(|s| {
+                        s.background(
+                            config
+                                .color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
+                        )
+                    })
+            })
     });
     let is_macos = cfg!(target_os = "macos");
     stack((
