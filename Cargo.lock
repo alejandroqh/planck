@@ -3449,14 +3449,14 @@ checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
 
 [[package]]
 name = "planck"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "planck-app",
 ]
 
 [[package]]
 name = "planck-app"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "Inflector",
  "alacritty_terminal",
@@ -3515,7 +3515,7 @@ dependencies = [
 
 [[package]]
 name = "planck-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3543,7 +3543,7 @@ dependencies = [
 
 [[package]]
 name = "planck-proxy"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -3581,7 +3581,7 @@ dependencies = [
 
 [[package]]
 name = "planck-rpc"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

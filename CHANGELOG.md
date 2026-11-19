@@ -1,5 +1,13 @@
 # Changelog
 
+## Planck 1.1.1 (2026-11-19)
+
+### Changes
+- Planck makes no network connections
+- The updater is gone, along with Help › Restart to update. Update Planck the way you installed it
+- Syntax highlighting is built in instead of downloaded at first launch
+- The markdown preview shows the address of a remote image instead of loading it
+
 ## Planck 1.1.0 (2026-11-19)
 
 ### Features

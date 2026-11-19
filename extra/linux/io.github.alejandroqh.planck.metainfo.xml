@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.1.1" date="2026-11-19" type="stable">
+            <description>
+                <p>Planck makes no network connections: the updater is gone, syntax highlighting is built in, and the markdown preview no longer loads remote images.</p>
+            </description>
+        </release>
         <release version="1.1.0" date="2026-11-19" type="stable">
             <description>
                 <p>Planck has one window, unsaved Untitled files are never lost, and the planck command opens files from a terminal.</p>
