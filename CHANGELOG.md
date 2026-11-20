@@ -1,5 +1,23 @@
 # Changelog
 
+## Planck 1.2.0 (2026-11-20)
+
+### Features
+- Planck guesses the language from the first 50 lines, so Untitled files, pasted code and files without an extension get syntax highlighting. A shebang such as `#!/usr/bin/env python3` decides the language even when the extension says otherwise
+- A language chosen with Change File Language stays until the file is closed, through edits and Save As
+- More files are recognized, including Makefile, CMakeLists.txt, `.ini`, `.conf` and systemd units, Jenkinsfile and `.gradle`, `.scala`, `.graphql`, `go.mod`, `.gitignore`, `.env`, `.jsonc` and `Dockerfile.dev`
+
+### Bug Fixes
+- Text after an escape or an embedded expression keeps its color, such as the rest of a string after `\t` or of a template after `${x}`
+- Fish, Fluent, Forth, Fortran and F# files are highlighted with their own grammar instead of a neighbour's
+- C#, Kotlin build scripts (`.kts`), OCaml interfaces, Git commit, config and rebase files, Go templates, Nushell and LLVM MIR get syntax highlighting
+- Code blocks tagged `js`, `py`, `sh` or `yml` in markdown files are highlighted in the editor
+- TODO, FIXME and NOTE in comments, Rust lifetimes and `?`, CSS selectors, diff lines, markdown inline code and quotes, and C `#define` values get colors
+- Unquoted values and upper-case names in shell scripts get colors
+
+### Changes
+- Updated dependencies. Building Planck no longer needs OpenSSL or Perl
+
 ## Planck 1.1.1 (2026-11-19)
 
 ### Changes

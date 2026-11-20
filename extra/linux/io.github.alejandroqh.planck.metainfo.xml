@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.2.0" date="2026-11-20" type="stable">
+            <description>
+                <p>Planck guesses the language of Untitled files and files without an extension from their content, and syntax highlighting is fixed and extended across many languages.</p>
+            </description>
+        </release>
         <release version="1.1.1" date="2026-11-19" type="stable">
             <description>
                 <p>Planck makes no network connections: the updater is gone, syntax highlighting is built in, and the markdown preview no longer loads remote images.</p>
