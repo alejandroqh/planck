@@ -310,6 +310,8 @@ pub enum PlanckLanguage {
     Haxe,
     #[strum(message = "HCL")]
     Hcl,
+    #[strum(message = "Hex Dump")]
+    HexDump,
     #[strum(message = "Hosts file (/etc/hosts)")]
     Hosts,
     #[strum(message = "HTML")]
@@ -1010,6 +1012,16 @@ const LANGUAGES: &[SyntaxProperties] = &[
         files: &[],
         extensions: &["hcl", "tf"],
         comment: comment_properties!("//"),
+        tree_sitter: TreeSitterProperties::DEFAULT,
+    },
+    // Binary files open as a hex dump, colored line by line in
+    // `style::hex_dump_line_styles` instead of by a grammar.
+    SyntaxProperties {
+        id: PlanckLanguage::HexDump,
+        indent: Indent::space(2),
+        files: &[],
+        extensions: &[],
+        comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
@@ -1936,7 +1948,14 @@ impl PlanckLanguage {
 
     /// Markers on line 1 that say outright what the file is.
     fn from_first_line(line: &str) -> Option<PlanckLanguage> {
+        static HEX_DUMP_ROW: Lazy<regex::Regex> = Lazy::new(|| {
+            regex::Regex::new(r"^[0-9a-f]{8}  ([0-9a-f]{2} +){1,16} *\|.*\|$")
+                .unwrap()
+        });
         use PlanckLanguage::*;
+        if HEX_DUMP_ROW.is_match(line) {
+            return Some(HexDump);
+        }
         if line.starts_with("<?php") {
             return Some(Php);
         }
@@ -2066,6 +2085,9 @@ impl PlanckLanguage {
     }
 
     fn get_grammar(&self) -> Option<tree_sitter::Language> {
+        if matches!(self, PlanckLanguage::PlainText | PlanckLanguage::HexDump) {
+            return None;
+        }
         let grammar_name = self.grammar_name();
         let grammar_fn_name = self.grammar_fn_name();
 
@@ -2506,6 +2528,17 @@ mod tests {
                 "deploy",
                 "#!/usr/bin/env -S deno run\nconsole.log(1)\n",
                 Typescript,
+            ),
+            (
+                "demo.gif",
+                "00000000  47 49 46 38 39 61 68 01 eb 00 f7 ff 00 19 16 27  |GIF89ah........'|\n",
+                HexDump,
+            ),
+            // A hex dump row beats a known extension.
+            (
+                "data.json",
+                "00000000  7b 0a                                            |{.|\n",
+                HexDump,
             ),
         ];
         for (path, text, want) in cases {

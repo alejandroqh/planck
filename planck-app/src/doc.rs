@@ -60,7 +60,7 @@ use planck_core::{
     register::Register,
     rope_text_pos::RopeTextPosition,
     selection::{InsertDrift, Selection},
-    style::line_styles,
+    style::{hex_dump_line_styles, line_styles},
     syntax::{BracketParser, Syntax, edit::SyntaxEdit},
     word::{CharClassification, WordCursor, get_char_property},
 };
@@ -966,15 +966,23 @@ impl Doc {
     /// This caches the result if possible.
     pub fn line_style(&self, line: usize) -> Arc<Vec<LineStyle>> {
         if self.line_styles.borrow().get(&line).is_none() {
-            let styles = self.styles();
-
-            let line_styles = styles
-                .map(|styles| {
-                    let text =
-                        self.buffer.with_untracked(|buffer| buffer.text().clone());
-                    line_styles(&text, line, &styles)
+            let hex_dump = self
+                .syntax
+                .with_untracked(|s| s.language == PlanckLanguage::HexDump);
+            let line_styles = if hex_dump {
+                self.buffer.with_untracked(|buffer| {
+                    hex_dump_line_styles(&buffer.line_content(line))
                 })
-                .unwrap_or_default();
+            } else {
+                self.styles()
+                    .map(|styles| {
+                        let text = self
+                            .buffer
+                            .with_untracked(|buffer| buffer.text().clone());
+                        line_styles(&text, line, &styles)
+                    })
+                    .unwrap_or_default()
+            };
             self.line_styles
                 .borrow_mut()
                 .insert(line, Arc::new(line_styles));
