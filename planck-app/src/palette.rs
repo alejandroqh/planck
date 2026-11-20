@@ -1215,6 +1215,8 @@ impl PaletteData {
                         };
                         doc.set_language(lang);
                     }
+                    // A hand-picked language beats auto-detection from now on.
+                    doc.pinned_language.set(true);
                     doc.trigger_syntax_change(None);
                 }
                 PaletteItemContent::LineEnding { kind } => {

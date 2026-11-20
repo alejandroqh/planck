@@ -21,7 +21,7 @@ use lsp_types::{
 };
 use planck_core::{
     buffer::rope_text::RopeText, command::FocusCommand, cursor::Cursor,
-    rope_text_pos::RopeTextPosition, selection::Selection, syntax::Syntax,
+    rope_text_pos::RopeTextPosition, selection::Selection,
 };
 use planck_rpc::{
     buffer::BufferId, core::FileChanged, plugin::PluginId, proxy::ProxyResponse,
@@ -2640,7 +2640,6 @@ impl MainSplitData {
                                 err
                             );
                         } else {
-                            let syntax = Syntax::init(&path);
                             doc.content.set(DocContent::File {
                                 path: path.clone(),
                                 read_only: false,
@@ -2648,7 +2647,8 @@ impl MainSplitData {
                             doc.buffer.update(|buffer| {
                                 buffer.set_pristine();
                             });
-                            doc.set_syntax(syntax);
+                            // Keeps a hand-picked language, else re-detects with the new extension.
+                            doc.detect_language();
                             doc.trigger_syntax_change(None);
                             action();
                         }
@@ -2695,7 +2695,6 @@ impl MainSplitData {
                                 err
                             );
                         } else {
-                            let syntax = Syntax::init(&path);
                             doc.content.set(DocContent::File {
                                 path: path.clone(),
                                 read_only: false,
@@ -2703,7 +2702,8 @@ impl MainSplitData {
                             doc.buffer.update(|buffer| {
                                 buffer.set_pristine();
                             });
-                            doc.set_syntax(syntax);
+                            // Keeps a hand-picked language, else re-detects with the new extension.
+                            doc.detect_language();
                             doc.trigger_syntax_change(None);
                             action();
                         }

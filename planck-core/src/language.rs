@@ -1706,6 +1706,134 @@ const LANGUAGES: &[SyntaxProperties] = &[
     },
 ];
 
+/// (language, weight, line-anchored regex) rules for `from_content`.
+// shortcut: regex heuristics for common paste targets, add rules here when a language is misdetected
+#[rustfmt::skip]
+const CONTENT_RULES: &[(PlanckLanguage, u32, &str)] = {
+    use PlanckLanguage::*;
+    &[
+        (Rust, 3, r"^\s*(pub(\([\w:]+\))?\s+)?(async\s+)?fn\s+\w+\s*[<(]"),
+        (Rust, 3, r"^\s*use\s+(std|crate|super|self)::"),
+        (Rust, 3, r"\blet\s+mut\s+\w+"),
+        (Rust, 3, r"^\s*#\[(derive|cfg|test|allow)"),
+        (Rust, 3, r"\b(println|format|vec)!\s*[(\[]"),
+        (Rust, 2, r"^\s*impl(<[^>]*>)?\s+\w+"),
+        (Rust, 1, r"^\s*(pub\s+)?(struct|enum|trait|mod)\s+\w+"),
+        (Python, 3, r"^\s*(async\s+)?def\s+\w+\s*\(.*\)\s*(->\s*[^:]+)?:\s*$"),
+        (Python, 3, r"^\s*class\s+\w+(\(.*\))?:\s*$"),
+        (Python, 3, r"^\s*if\s+__name__\s*==\s*.__main__.\s*:"),
+        (Python, 2, r"^\s*(from\s+[\w.]+\s+import\s+\w|import\s+[\w.]+(\s+as\s+\w+)?\s*$)"),
+        (Python, 2, r"^\s*(elif\s.*|else|try|except(\s.*)?|finally)\s*:\s*$"),
+        (Python, 1, r"\bself\.\w+"),
+        (Javascript, 3, r"\brequire\(\s*['\x22]"),
+        (Javascript, 3, r"^\s*(module\.)?exports\b"),
+        (Javascript, 2, r"^\s*import\s+.*\s+from\s+['\x22]"),
+        (Javascript, 2, r"\bfunction\s*\w*\s*\([^$]*$"),
+        (Javascript, 2, r"\bconsole\.(log|error|warn)\("),
+        (Javascript, 1, r"^\s*(export\s+)?(const|let|var)\s+\w+\s*="),
+        (Javascript, 1, r"=>\s*[{(]?"),
+        (Javascript, 1, r"\b(document|window)\.\w+"),
+        (Typescript, 3, r"^\s*(export\s+)?(interface|type)\s+\w+(<[^>]*>)?\s*(=|\{|extends)"),
+        (Typescript, 3, r":\s*(string|number|boolean|any|void|unknown|never)\b"),
+        (Typescript, 2, r"\bas\s+(const|string|number|any|unknown)\b"),
+        (Typescript, 1, r"^\s*(export\s+)?(enum|namespace|declare)\s+\w+"),
+        (Go, 3, r"^package\s+\w+\s*$"),
+        (Go, 3, r"^\s*func\s+(\(\w+\s+\*?\w+\)\s*)?\w+\s*\("),
+        (Go, 3, r"^import\s+(\(|\x22[\w/.]+\x22)"),
+        (Go, 3, r"\bfmt\.\w+\("),
+        (Go, 3, r"^\s*type\s+\w+\s+(struct|interface)\s*\{"),
+        (Go, 3, r"\berr\s*!=\s*nil\b"),
+        (Go, 1, r":="),
+        (C, 3, r"^\s*#include\s*[<\x22]"),
+        (C, 2, r"\b(printf|malloc|free|sizeof)\s*\("),
+        (C, 2, r"^\s*(static\s+)?(int|void|char|unsigned|long|double|float|size_t)\s+\**\w+\s*\("),
+        (C, 1, r"^\s*#(define|ifndef|ifdef|endif|pragma)\b"),
+        (C, 1, r"\w->\w"),
+        (Cpp, 3, r"^\s*#include\s*<(iostream|string|vector|map|memory|algorithm)>"),
+        (Cpp, 3, r"\bstd::(cout|cerr|endl|vector|unique_ptr|shared_ptr|make_unique|make_shared)\b"),
+        (Cpp, 3, r"^\s*(template\s*<|namespace\s+\w+|using\s+namespace\s)"),
+        (Cpp, 3, r"\bcout\s*<<|\bcin\s*>>"),
+        (Java, 3, r"^\s*(public|private|protected)\s+(abstract\s+)?(static\s+)?(final\s+)?(class|interface|enum|record)\s+\w+"),
+        (Java, 3, r"^\s*import\s+(static\s+)?[\w.]+(\.\*)?;\s*$"),
+        (Java, 3, r"^\s*package\s+[\w.]+;\s*$"),
+        (Java, 3, r"System\.out\.print"),
+        (Java, 3, r"public\s+static\s+void\s+main"),
+        (Java, 2, r"@Override\b"),
+        (Csharp, 3, r"^\s*using\s+[\w.]+;\s*$"),
+        (Csharp, 3, r"Console\.Write(Line)?\("),
+        (Csharp, 3, r"\{\s*get;\s*(set;)?\s*\}"),
+        (Csharp, 2, r"^\s*namespace\s+[\w.]+\s*(;|\{)?\s*$"),
+        (Csharp, 2, r"\bvar\s+\w+\s*=\s*new\b"),
+        (Php, 5, r"<\?php"),
+        (Php, 3, r"\$this->"),
+        (Php, 3, r"function\s+\w+\s*\([^)]*\$"),
+        (Php, 3, r"^\s*use\s+[A-Z]\w*\\[\w\\]+;"),
+        (Php, 1, r"\$\w+\s*="),
+        (Ruby, 3, r"\b(puts|attr_accessor|attr_reader|attr_writer)\b"),
+        (Ruby, 3, r"\.each\s+do\b|\bdo\s*\|\w+"),
+        (Ruby, 3, r"^\s*#\s*frozen_string_literal"),
+        (Ruby, 2, r"^\s*def\s+(self\.)?\w+[?!]?(\(.*\))?\s*$"),
+        (Ruby, 2, r"^\s*require(_relative)?\s+['\x22]"),
+        (Ruby, 2, r"^\s*(class|module)\s+[A-Z]\w*(\s*<\s*[A-Z][\w:]*)?\s*$"),
+        (Ruby, 1, r"^\s*end\s*$"),
+        (Bash, 3, r"^\s*(if|while|until)\s+\[\[?\s"),
+        (Bash, 3, r"^\s*(fi|done|esac)\s*$"),
+        (Bash, 3, r";\s*(then|do)\s*$"),
+        (Bash, 3, r"^\s*set\s+-[euxo]"),
+        (Bash, 1, r"^\s*(export\s+)?[A-Z_][A-Z0-9_]*="),
+        (Bash, 1, r"\x22\$\{?\w+\}?\x22"),
+        (Bash, 1, r"^\s*(echo|cd|mkdir|rm|export|source|sudo|apt|dnf|brew|cargo|npm|git)\s"),
+        (Bash, 1, r"^\s*\w+\(\)\s*\{"),
+        (Sql, 3, r"^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA|UNIQUE)|ALTER\s+TABLE|DROP\s+(TABLE|INDEX|VIEW))\b"),
+        (Sql, 3, r"^\s*(select\s.*\sfrom\s|insert\s+into\s|create\s+table\s|delete\s+from\s|update\s+\w+\s+set\s)"),
+        (Sql, 2, r"(?i)\b(varchar|primary\s+key|foreign\s+key|auto_increment)\b"),
+        (Sql, 1, r"^\s*(FROM|WHERE|GROUP\s+BY|ORDER\s+BY|LEFT\s+JOIN|INNER\s+JOIN|JOIN|HAVING|LIMIT)\s"),
+        (Sql, 1, r"\b(INTEGER|NOT NULL|BOOLEAN|TIMESTAMP)\b"),
+        (Json, 2, r"\A\s*[\[{]"),
+        (Json, 2, r"^\s*\x22[^\x22\n]+\x22\s*:\s*"),
+        (Yaml, 2, r"^\s*- [\w.-]+:\s"),
+        (Yaml, 2, r"^\s*(apiVersion|kind|metadata|spec|services|steps|jobs|runs-on|uses|image|env):"),
+        (Yaml, 1, r"\A---\s*$"),
+        (Yaml, 1, r"^\s*[\w.-]+:\s*(\||>)?\s*$"),
+        (Yaml, 1, r"^\s*[\w.-]+:\s+\S"),
+        (Toml, 3, r"^\s*\[\[[\w.-]+\]\]\s*$"),
+        (Toml, 2, r"^\s*\[[\w.-]+\]\s*$"),
+        (Toml, 2, r"^\s*[\w.-]+\s*=\s*(\x22.*\x22|'.*'|\d|true|false|\[|\{)"),
+        (Html, 5, r"(?i)^\s*(<!doctype\s+html|<html\b)"),
+        (Html, 1, r"(?i)<(div|span|p|a\s+href|head|body|script|style|ul|li|table|meta|link)\b"),
+        (Html, 1, r"</\w+>"),
+        (Xml, 5, r"^\s*<\?xml\b"),
+        (Xml, 3, r"\bxmlns(:\w+)?="),
+        (Css, 3, r"^\s*@(media|import|font-face|keyframes|charset)\b"),
+        (Css, 2, r"^\s*([.#][\w-]+|:root|\*|body|html|h[1-6]|div|span|a|p|ul|li|table|img|button|input)([\s,>+~.#:\[][^{]*)?\{\s*$"),
+        (Css, 1, r"^\s*[\w-]+\s*:\s*[^;{]+;\s*$"),
+        (Css, 1, r"\b\d+(px|em|rem|vh|vw)\b|#[0-9a-fA-F]{3,6}\b"),
+        (Markdown, 3, r"^\s*(```|~~~)"),
+        (Markdown, 2, r"\[[^\]]+\]\((https?://|\.{0,2}/|#|[\w-]+\.(md|png|jpg|svg|html))"),
+        (Markdown, 2, r"\*\*\w[^*\n]*\*\*"),
+        (Markdown, 2, r"^\s*[-*]\s+\[[ xX]\]"),
+        (Markdown, 1, r"^#{1,6}\s+\S"),
+        (Markdown, 1, r"^\s*[-*+]\s+\S"),
+        (Markdown, 1, r"^\s*\d+\.\s+\S"),
+        (Markdown, 1, r"`[^`\n]+`"),
+        (Markdown, 1, r"^>\s"),
+        (Markdown, 1, r"^\s*\|.*\|\s*$"),
+        (Diff, 5, r"^diff --git |^@@ -\d+(,\d+)? \+\d+(,\d+)? @@"),
+        (Diff, 3, r"^(---|\+\+\+) [ab]/"),
+        (Dockerfile, 3, r"^FROM\s+[\w./:-]+(\s+AS\s+\w+)?\s*$"),
+        (Dockerfile, 2, r"^(RUN|COPY|ADD|WORKDIR|ENV|EXPOSE|CMD|ENTRYPOINT|ARG|LABEL|USER|VOLUME)\s"),
+        (Lua, 3, r"^\s*local\s+(function\s+)?\w+"),
+        (Lua, 3, r"^\s*function\s+\w+[.:]\w+\s*\("),
+        (Lua, 1, r"\bthen\s*$"),
+        (Lua, 1, r"^\s*end\s*$"),
+        (Kotlin, 3, r"^\s*fun\s+(<[^>]+>\s*)?[\w.]+\s*\("),
+        (Kotlin, 3, r"^\s*(data\s+class|companion\s+object|sealed\s+class|object\s+\w+)"),
+        (Kotlin, 2, r"^\s*val\s+\w+"),
+        (Kotlin, 2, r"^\s*var\s+\w+\s*:\s*\w"),
+        (Kotlin, 1, r"\bprintln\("),
+    ]
+};
+
 impl PlanckLanguage {
     const HIGHLIGHTS_INJECTIONS_FILE_NAME: &'static str = "injections.scm";
     const HIGHLIGHTS_QUERIES_FILE_NAME: &'static str = "highlights.scm";
@@ -1735,6 +1863,103 @@ impl PlanckLanguage {
         }
 
         None
+    }
+
+    /// Pick a language from the path and the first lines of the text.
+    /// A shebang, `<?php` or diff header beats the extension; keyword scoring
+    /// only fills in when the path says nothing (Untitled, `.txt`, unknown).
+    pub fn detect(path: Option<&Path>, head: &str) -> PlanckLanguage {
+        use PlanckLanguage::*;
+        let by_path = path.and_then(Self::from_path_raw);
+        if let Some(lang) = Self::from_first_line(head.lines().next().unwrap_or(""))
+        {
+            // `#!/usr/bin/env node` on top of a .ts file is still TypeScript.
+            let js_in_ts = lang == Javascript
+                && matches!(by_path, Some(Typescript | Tsx | Jsx));
+            if !js_in_ts {
+                return lang;
+            }
+        }
+        match by_path {
+            Some(lang) if lang != PlainText => lang,
+            _ => Self::from_content(head).unwrap_or(PlainText),
+        }
+    }
+
+    /// Markers on line 1 that say outright what the file is.
+    fn from_first_line(line: &str) -> Option<PlanckLanguage> {
+        use PlanckLanguage::*;
+        if line.starts_with("<?php") {
+            return Some(Php);
+        }
+        if line.starts_with("diff --git ") || line.starts_with("--- a/") {
+            return Some(Diff);
+        }
+        let mut words = line.strip_prefix("#!")?.split_whitespace();
+        let mut prog = words.next()?.rsplit('/').next()?;
+        if prog == "env" {
+            prog = words.find(|w| !w.starts_with('-') && !w.contains('='))?;
+        }
+        // python3.12 -> python, lua5.4 -> lua
+        let prog = prog.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+        Some(match prog {
+            "python" | "pypy" => Python,
+            "bash" | "sh" | "zsh" | "ksh" | "dash" => Bash,
+            "fish" => Fish,
+            "node" | "nodejs" => Javascript,
+            "deno" | "bun" | "ts-node" | "tsx" => Typescript,
+            "ruby" => Ruby,
+            "php" => Php,
+            "lua" | "luajit" => Lua,
+            _ => return None,
+        })
+    }
+
+    /// Weighted keyword scoring. The winner needs a minimum score and must
+    /// beat the runner-up, so prose and ambiguous snippets stay plain text.
+    fn from_content(head: &str) -> Option<PlanckLanguage> {
+        use PlanckLanguage::*;
+        const MIN_SCORE: u32 = 3;
+        static RULES: Lazy<Vec<(PlanckLanguage, u32, regex::Regex)>> =
+            Lazy::new(|| {
+                CONTENT_RULES
+                    .iter()
+                    .map(|&(lang, weight, re)| {
+                        (
+                            lang,
+                            weight,
+                            regex::Regex::new(&format!("(?m){re}")).unwrap(),
+                        )
+                    })
+                    .collect()
+            });
+
+        let mut scores: HashMap<PlanckLanguage, u32> = HashMap::new();
+        for (lang, weight, re) in RULES.iter() {
+            // At most 3 hits per rule, so one repeated line can't dominate.
+            let hits = re.find_iter(head).take(3).count() as u32;
+            if hits > 0 {
+                *scores.entry(*lang).or_default() += weight * hits;
+            }
+        }
+        // TypeScript and C++ code also scores as their base language.
+        for (sup, base) in [(Typescript, Javascript), (Cpp, C)] {
+            let b = scores.get(&base).copied().unwrap_or(0);
+            if let Some(s) = scores.get_mut(&sup) {
+                *s += b;
+            }
+        }
+
+        let mut ranked: Vec<_> = scores.into_iter().collect();
+        ranked.sort_by_key(|r| std::cmp::Reverse(r.1));
+        match ranked.as_slice() {
+            [(lang, top), rest @ ..]
+                if *top >= MIN_SCORE && rest.first().is_none_or(|r| r.1 < *top) =>
+            {
+                Some(*lang)
+            }
+            _ => None,
+        }
     }
 
     pub fn from_name(name: &str) -> Option<PlanckLanguage> {
@@ -2087,5 +2312,97 @@ mod tests {
         assert_eq!(l, PlanckLanguage::Rust);
         let l = PlanckLanguage::from_path(&PathBuf::from("/home/u/.zshrc"));
         assert_eq!(l, PlanckLanguage::Bash);
+    }
+
+    #[test]
+    fn test_detect_untitled() {
+        use PlanckLanguage::*;
+        let cases = [
+            (
+                Rust,
+                "use std::fmt;\n\nfn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n}\n",
+            ),
+            (
+                Python,
+                "import os\n\ndef run(path):\n    if os.path.exists(path):\n        return True\n",
+            ),
+            (Python, "def f(x):\n    return x\n"),
+            (
+                Json,
+                "{\n  \"name\": \"planck\",\n  \"version\": \"1.0\"\n}\n",
+            ),
+            (
+                Yaml,
+                "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+            ),
+            (Sql, "SELECT id, name\nFROM users\nWHERE id = 1;\n"),
+            (
+                Go,
+                "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n",
+            ),
+            (
+                Html,
+                "<!DOCTYPE html>\n<html>\n<body><div>hi</div></body>\n</html>\n",
+            ),
+            (Bash, "set -e\nfor f in *.txt; do\n  echo \"$f\"\ndone\n"),
+            (
+                Markdown,
+                "# Title\n\nSome **bold** text and a [link](https://example.com).\n\n- one\n- two\n",
+            ),
+            (
+                Diff,
+                "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n",
+            ),
+            (
+                Typescript,
+                "interface User {\n  name: string;\n}\nconst u: User = { name: \"a\" };\n",
+            ),
+            (
+                Javascript,
+                "const fs = require('fs');\nmodule.exports = () => {};\n",
+            ),
+            (
+                Cpp,
+                "#include <iostream>\n\nint main() {\n    std::cout << \"hi\";\n}\n",
+            ),
+            (
+                Dockerfile,
+                "FROM rust:1.80\nWORKDIR /app\nCOPY . .\nRUN cargo build\n",
+            ),
+            (
+                PlainText,
+                "Meeting notes from Tuesday. We agreed to ship the release next week\nand to review the open issues before then.\n",
+            ),
+            (PlainText, ""),
+        ];
+        for (want, text) in cases {
+            assert_eq!(PlanckLanguage::detect(None, text), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn test_detect_overrides_path() {
+        use PlanckLanguage::*;
+        let cases = [
+            ("notes.txt", "{\n  \"a\": 1,\n  \"b\": [true]\n}\n", Json),
+            ("run.py", "#!/bin/bash\necho hi\n", Bash),
+            (
+                "app.ts",
+                "#!/usr/bin/env node\nconsole.log(1);\n",
+                Typescript,
+            ),
+            ("main.rs", "def f(x):\n    return x\n", Rust),
+            ("main.rs", "#![allow(dead_code)]\nfn main() {}\n", Rust),
+            ("script", "#!/usr/bin/env python3\nprint(1)\n", Python),
+            (
+                "deploy",
+                "#!/usr/bin/env -S deno run\nconsole.log(1)\n",
+                Typescript,
+            ),
+        ];
+        for (path, text, want) in cases {
+            let got = PlanckLanguage::detect(Some(&PathBuf::from(path)), text);
+            assert_eq!(got, want, "{path}");
+        }
     }
 }

@@ -217,6 +217,8 @@ pub struct Doc {
     pub loaded: RwSignal<bool>,
     pub buffer: RwSignal<Buffer>,
     pub syntax: RwSignal<Syntax>,
+    /// The user picked the language by hand, so auto-detection leaves it alone.
+    pub pinned_language: RwSignal<bool>,
     semantic_styles: RwSignal<Option<Spans<Style>>>,
     /// Inlay hints for the document
     pub inlay_hints: RwSignal<Option<Spans<InlayHint>>>,
@@ -317,6 +319,7 @@ impl Doc {
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
             line_blame: cx.create_rw_signal(None),
+            pinned_language: cx.create_rw_signal(false),
         }
     }
 
@@ -372,6 +375,7 @@ impl Doc {
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
             line_blame: cx.create_rw_signal(None),
+            pinned_language: cx.create_rw_signal(false),
         }
     }
 
@@ -427,6 +431,7 @@ impl Doc {
                 .create_rw_signal(DocumentHighlightsStatus::Ready),
             highlights: cx.create_rw_signal(None),
             line_blame: cx.create_rw_signal(None),
+            pinned_language: cx.create_rw_signal(false),
         }
     }
 
@@ -492,6 +497,33 @@ impl Doc {
     /// Set the syntax highlighting this document should use.
     pub fn set_language(&self, language: PlanckLanguage) {
         self.syntax.set(Syntax::from_language(language));
+    }
+
+    /// Re-guess the language from the path and the first 50 lines, unless the
+    /// user picked one. Returns true when the language changed.
+    pub fn detect_language(&self) -> bool {
+        if self.pinned_language.get_untracked() {
+            return false;
+        }
+        let path = match self.content.get_untracked() {
+            DocContent::File { path, .. } => Some(path),
+            DocContent::History(history) => Some(history.path),
+            DocContent::Scratch { .. } => None,
+            // Palette and search inputs never get highlighting.
+            DocContent::Local => return false,
+        };
+        let head = self.buffer.with_untracked(|b| {
+            // 8 KB cap so a minified file doesn't copy megabytes per keystroke.
+            let end = b.offset_of_line(50).min(8192);
+            let end = b.text().at_or_prev_codepoint_boundary(end).unwrap_or(0);
+            b.text().slice_to_cow(0..end).into_owned()
+        });
+        let language = PlanckLanguage::detect(path.as_deref(), &head);
+        if language == self.syntax.with_untracked(|s| s.language) {
+            return false;
+        }
+        self.set_syntax(Syntax::from_language(language));
+        true
     }
 
     pub fn find(&self) -> &Find {
@@ -694,6 +726,8 @@ impl Doc {
 
     fn on_update(&self, edits: Option<SmallVec<[SyntaxEdit; 3]>>) {
         batch(|| {
+            // A new language needs a full parse, not incremental edits.
+            let edits = if self.detect_language() { None } else { edits };
             self.trigger_syntax_change(edits);
             self.trigger_head_change();
             self.check_auto_save();
