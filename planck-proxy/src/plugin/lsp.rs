@@ -268,10 +268,9 @@ impl LspClient {
                             &message_str,
                             &name,
                             &io_tx,
-                        ) {
-                            if let Err(err) = io_tx.send(resp) {
-                                tracing::error!("{:?}", err);
-                            }
+                        ) && let Err(err) = io_tx.send(resp)
+                        {
+                            tracing::error!("{:?}", err);
                         }
                     }
                     Err(_err) => {

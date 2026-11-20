@@ -229,14 +229,12 @@ impl KeyPressData {
             logical: Key::Character(c),
             ..
         } = &keypress.key
+            && let Ok(n) = c.parse::<usize>()
+            && (self.count.with_untracked(|count| count.is_some()) || n > 0)
         {
-            if let Ok(n) = c.parse::<usize>() {
-                if self.count.with_untracked(|count| count.is_some()) || n > 0 {
-                    self.count
-                        .update(|count| *count = Some(count.unwrap_or(0) * 10 + n));
-                    return true;
-                }
-            }
+            self.count
+                .update(|count| *count = Some(count.unwrap_or(0) * 10 + n));
+            return true;
         }
 
         false
@@ -310,14 +308,13 @@ impl KeyPressData {
         self.pending_keypress
             .update(|(pending_keypress, last_time)| {
                 let last_time = last_time.replace(SystemTime::now());
-                if let Some(last_time_val) = last_time {
-                    if last_time_val
+                if let Some(last_time_val) = last_time
+                    && last_time_val
                         .elapsed()
                         .map(|x| x.as_millis() > 1000)
                         .unwrap_or_default()
-                    {
-                        pending_keypress.clear();
-                    }
+                {
+                    pending_keypress.clear();
                 }
                 pending_keypress.push(keypress.clone());
             });
@@ -399,18 +396,16 @@ impl KeyPressData {
                     keypress.mods.set(Modifiers::SHIFT, false);
                     if let KeymapMatch::Full(command) =
                         self.match_keymap(&[keypress], focus)
+                        && let Some(cmd) = self.commands.get(&command)
+                        && let CommandKind::Move(_) = cmd.kind
                     {
-                        if let Some(cmd) = self.commands.get(&command) {
-                            if let CommandKind::Move(_) = cmd.kind {
-                                let handled = focus.run_command(cmd, None, mods)
-                                    == CommandExecuted::Yes;
-                                return KeyPressHandle {
-                                    handled,
-                                    keymatch,
-                                    keypress: old_keypress,
-                                };
-                            }
-                        }
+                        let handled = focus.run_command(cmd, None, mods)
+                            == CommandExecuted::Yes;
+                        return KeyPressHandle {
+                            handled,
+                            keymatch,
+                            keypress: old_keypress,
+                        };
                     }
                 }
             }
@@ -428,25 +423,25 @@ impl KeyPressData {
             mods.set(Modifiers::SHIFT, false);
             mods.set(Modifiers::ALTGR, false);
         }
-        if mods.is_empty() {
-            if let KeyInput::Keyboard { logical, .. } = &keypress.key {
-                if let Key::Character(c) = logical {
-                    focus.receive_char(c);
-                    self.count.set(None);
-                    return KeyPressHandle {
-                        handled: true,
-                        keymatch,
-                        keypress,
-                    };
-                } else if let Key::Named(NamedKey::Space) = logical {
-                    focus.receive_char(" ");
-                    self.count.set(None);
-                    return KeyPressHandle {
-                        handled: true,
-                        keymatch,
-                        keypress,
-                    };
-                }
+        if mods.is_empty()
+            && let KeyInput::Keyboard { logical, .. } = &keypress.key
+        {
+            if let Key::Character(c) = logical {
+                focus.receive_char(c);
+                self.count.set(None);
+                return KeyPressHandle {
+                    handled: true,
+                    keymatch,
+                    keypress,
+                };
+            } else if let Key::Named(NamedKey::Space) = logical {
+                focus.receive_char(" ");
+                self.count.set(None);
+                return KeyPressHandle {
+                    handled: true,
+                    keymatch,
+                    keypress,
+                };
             }
         }
 
@@ -497,10 +492,10 @@ impl KeyPressData {
                         {
                             return false;
                         }
-                        if let Some(condition) = &keymap.when {
-                            if !Self::check_condition(condition, check) {
-                                return false;
-                            }
+                        if let Some(condition) = &keymap.when
+                            && !Self::check_condition(condition, check)
+                        {
+                            return false;
                         }
                         true
                     })
@@ -589,12 +584,11 @@ impl KeyPressData {
             trace!(TraceLevel::ERROR, "Failed to load OS defaults: {err}");
         }
 
-        if let Some(path) = Self::file() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Err(err) = loader.load_from_str(&content, is_modal) {
-                    trace!(TraceLevel::WARN, "Failed to load from {path:?}: {err}");
-                }
-            }
+        if let Some(path) = Self::file()
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Err(err) = loader.load_from_str(&content, is_modal)
+        {
+            trace!(TraceLevel::WARN, "Failed to load from {path:?}: {err}");
         }
 
         Ok(loader.finalize())

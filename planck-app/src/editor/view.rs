@@ -1081,16 +1081,16 @@ impl EditorView {
                 );
             }
 
-            if config.editor.highlight_scope_lines {
-                if let Some([start_line_col, end_line_col]) = bracket_line_cols {
-                    self.paint_scope_lines(
-                        cx,
-                        viewport,
-                        screen_lines,
-                        start_line_col,
-                        end_line_col,
-                    );
-                }
+            if config.editor.highlight_scope_lines
+                && let Some([start_line_col, end_line_col]) = bracket_line_cols
+            {
+                self.paint_scope_lines(
+                    cx,
+                    viewport,
+                    screen_lines,
+                    start_line_col,
+                    end_line_col,
+                );
             }
         }
     }
@@ -1526,12 +1526,11 @@ pub fn editor_container_view(
             } else {
                 None
             };
-        if let Some(name) = scratch_doc_name {
-            if !scratch_docs
+        if let Some(name) = scratch_doc_name
+            && !scratch_docs
                 .with_untracked(|scratch_docs| scratch_docs.contains_key(&name))
-            {
-                doc.scope.dispose();
-            }
+        {
+            doc.scope.dispose();
         }
     })
     .style(|s| s.flex_col().absolute().size_pct(100.0, 100.0))

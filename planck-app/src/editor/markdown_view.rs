@@ -558,7 +558,7 @@ fn sized_image(bytes: Arc<Vec<u8>>, width: RwSignal<f64>) -> Option<AnyView> {
     let (w, h) = match &svg_text {
         Some(text) => svg_size(text)?,
         None => {
-            let (w, h) = image::io::Reader::new(std::io::Cursor::new(&bytes[..]))
+            let (w, h) = image::ImageReader::new(std::io::Cursor::new(&bytes[..]))
                 .with_guessed_format()
                 .ok()?
                 .into_dimensions()

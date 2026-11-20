@@ -251,27 +251,27 @@ impl FileExplorerData {
 
     /// Rename the currently selected file, if it exists.
     pub fn rename_selected(&self) {
-        if let Some(file) = self.select.get_untracked() {
-            if let Some(path) = file.path() {
-                self.naming.set(Naming::Renaming(Renaming {
-                    state: NamingState::Naming,
-                    path: path.to_path_buf(),
-                    editor_needs_reset: true,
-                }));
-            }
+        if let Some(file) = self.select.get_untracked()
+            && let Some(path) = file.path()
+        {
+            self.naming.set(Naming::Renaming(Renaming {
+                state: NamingState::Naming,
+                path: path.to_path_buf(),
+                editor_needs_reset: true,
+            }));
         }
     }
 
     /// Trash the currently selected file, if it exists.
     pub fn trash_selected(&self) {
-        if let Some(file) = self.select.get_untracked() {
-            if let Some(path) = file.path() {
-                self.common.proxy.trash_path(path.to_path_buf(), |res| {
-                    if let Err(err) = res {
-                        tracing::warn!("Failed to trash path: {:?}", err);
-                    }
-                })
-            }
+        if let Some(file) = self.select.get_untracked()
+            && let Some(path) = file.path()
+        {
+            self.common.proxy.trash_path(path.to_path_buf(), |res| {
+                if let Err(err) = res {
+                    tracing::warn!("Failed to trash path: {:?}", err);
+                }
+            })
         }
     }
 
@@ -556,10 +556,10 @@ impl FileExplorerData {
                 // the directories in which the file are located are all read and opened
                 if root.get_file_node(&path).is_some() {
                     for current_path in path.ancestors() {
-                        if let Some(file) = root.get_file_node_mut(current_path) {
-                            if file.is_dir {
-                                file.open = true;
-                            }
+                        if let Some(file) = root.get_file_node_mut(current_path)
+                            && file.is_dir
+                        {
+                            file.open = true;
                         }
                     }
                     root.update_node_count_recursive(&path);

@@ -657,8 +657,8 @@ impl Vger {
             prim.start = self.scenes[self.cur_scene].cvs.len() as u32;
 
             let mut x_interval = Interval {
-                a: std::f32::MAX,
-                b: std::f32::MIN,
+                a: f32::MAX,
+                b: f32::MIN,
             };
 
             let mut index = self.path_scanner.first;

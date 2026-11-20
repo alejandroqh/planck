@@ -93,16 +93,16 @@ impl TerminalPanelData {
             let handle = keypress.key_down(event, &terminal);
             let mode = terminal.get_mode();
 
-            if !handle.handled && mode == Mode::Terminal {
-                if let EventRef::Keyboard(key_event) = event.into() {
-                    if terminal.send_keypress(key_event) {
-                        return Some(KeyPressHandle {
-                            handled: true,
-                            keymatch: handle.keymatch,
-                            keypress: handle.keypress,
-                        });
-                    }
-                }
+            if !handle.handled
+                && mode == Mode::Terminal
+                && let EventRef::Keyboard(key_event) = event.into()
+                && terminal.send_keypress(key_event)
+            {
+                return Some(KeyPressHandle {
+                    handled: true,
+                    keymatch: handle.keymatch,
+                    keypress: handle.keypress,
+                });
             }
             Some(handle)
         } else {
@@ -338,10 +338,11 @@ impl TerminalPanelData {
                 }
             })
             .unwrap();
-        if was_prelaunch == Some(true) && exit_code.unwrap_or(0) == 0 {
-            if let Some(run) = terminal.run_debug.get_untracked() {
-                terminal.new_process(Some(run));
-            }
+        if was_prelaunch == Some(true)
+            && exit_code.unwrap_or(0) == 0
+            && let Some(run) = terminal.run_debug.get_untracked()
+        {
+            terminal.new_process(Some(run));
         }
     }
 
@@ -371,10 +372,10 @@ impl TerminalPanelData {
         let (_, terminal_tab, index, terminal) =
             self.get_terminal_in_tab(&term_id)?;
         let mut run = terminal.run_debug.get_untracked()?;
-        if run.config.config_source.from_palette() {
-            if let Some(new_config) = self.get_run_config_by_name(&run.config.name) {
-                run.config = new_config;
-            }
+        if run.config.config_source.from_palette()
+            && let Some(new_config) = self.get_run_config_by_name(&run.config.name)
+        {
+            run.config = new_config;
         }
         self.common.proxy.terminal_close(term_id);
         run.stopped = false;

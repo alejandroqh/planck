@@ -1282,31 +1282,31 @@ impl WindowTabData {
                 }
             }
             HidePanel => {
-                if let Some(data) = data {
-                    if let Ok(kind) = serde_json::from_value::<PanelKind>(data) {
-                        self.hide_panel(kind);
-                    }
+                if let Some(data) = data
+                    && let Ok(kind) = serde_json::from_value::<PanelKind>(data)
+                {
+                    self.hide_panel(kind);
                 }
             }
             ShowPanel => {
-                if let Some(data) = data {
-                    if let Ok(kind) = serde_json::from_value::<PanelKind>(data) {
-                        self.show_panel(kind);
-                    }
+                if let Some(data) = data
+                    && let Ok(kind) = serde_json::from_value::<PanelKind>(data)
+                {
+                    self.show_panel(kind);
                 }
             }
             TogglePanelFocus => {
-                if let Some(data) = data {
-                    if let Ok(kind) = serde_json::from_value::<PanelKind>(data) {
-                        self.toggle_panel_focus(kind);
-                    }
+                if let Some(data) = data
+                    && let Ok(kind) = serde_json::from_value::<PanelKind>(data)
+                {
+                    self.toggle_panel_focus(kind);
                 }
             }
             TogglePanelVisual => {
-                if let Some(data) = data {
-                    if let Ok(kind) = serde_json::from_value::<PanelKind>(data) {
-                        self.toggle_panel_visual(kind);
-                    }
+                if let Some(data) = data
+                    && let Ok(kind) = serde_json::from_value::<PanelKind>(data)
+                {
+                    self.toggle_panel_visual(kind);
                 }
             }
             TogglePanelLeftVisual => {
@@ -1449,54 +1449,44 @@ impl WindowTabData {
             SourceControlOpenActiveFileRemoteUrl => {
                 if let Some(editor_data) =
                     self.main_split.active_editor.get_untracked()
-                {
-                    if let DocContent::File { path, .. } =
+                    && let DocContent::File { path, .. } =
                         editor_data.doc().content.get_untracked()
-                    {
-                        let offset =
-                            editor_data.cursor().with_untracked(|c| c.offset());
-                        let line = editor_data
-                            .doc()
-                            .buffer
-                            .with_untracked(|buffer| buffer.line_of_offset(offset));
-                        self.common.proxy.git_get_remote_file_url(
-                            path,
-                            create_ext_action(self.scope, move |result| {
-                                if let Ok(ProxyResponse::GitGetRemoteFileUrl {
-                                    file_url,
-                                }) = result
-                                {
-                                    if let Err(err) =
-                                        open::that(format!("{}#L{}", file_url, line))
-                                    {
-                                        error!(
-                                            "Failed to open file in github: {}",
-                                            err
-                                        );
-                                    }
-                                }
-                            }),
-                        );
-                    }
+                {
+                    let offset = editor_data.cursor().with_untracked(|c| c.offset());
+                    let line = editor_data
+                        .doc()
+                        .buffer
+                        .with_untracked(|buffer| buffer.line_of_offset(offset));
+                    self.common.proxy.git_get_remote_file_url(
+                        path,
+                        create_ext_action(self.scope, move |result| {
+                            if let Ok(ProxyResponse::GitGetRemoteFileUrl {
+                                file_url,
+                            }) = result
+                                && let Err(err) =
+                                    open::that(format!("{}#L{}", file_url, line))
+                            {
+                                error!("Failed to open file in github: {}", err);
+                            }
+                        }),
+                    );
                 }
             }
             RevealInFileExplorer => {
                 if let Some(editor_data) =
                     self.main_split.active_editor.get_untracked()
-                {
-                    if let DocContent::File { path, .. } =
+                    && let DocContent::File { path, .. } =
                         editor_data.doc().content.get_untracked()
-                    {
-                        let path = path.parent().unwrap_or(&path);
-                        if !path.exists() {
-                            return;
-                        }
-                        if let Err(err) = open::that(path) {
-                            error!(
-                                "Failed to reveal file in system file explorer: {}",
-                                err
-                            );
-                        }
+                {
+                    let path = path.parent().unwrap_or(&path);
+                    if !path.exists() {
+                        return;
+                    }
+                    if let Err(err) = open::that(path) {
+                        error!(
+                            "Failed to reveal file in system file explorer: {}",
+                            err
+                        );
                     }
                 }
             }
@@ -1729,12 +1719,11 @@ impl WindowTabData {
 
                             for content in renamed_editors_content {
                                 content.update(|content| {
-                                    if let DocContent::File { path, .. } = content {
-                                        if let Ok(suffix) =
+                                    if let DocContent::File { path, .. } = content
+                                        && let Ok(suffix) =
                                             path.strip_prefix(&send_current_path)
-                                        {
-                                            *path = new_path.join(suffix);
-                                        }
+                                    {
+                                        *path = new_path.join(suffix);
                                     }
                                 });
                             }
@@ -1770,12 +1759,10 @@ impl WindowTabData {
                                 // Open a new file in the editor
                                 if let ProxyResponse::CreatePathResponse { path } =
                                     response
+                                    && !is_dir
                                 {
-                                    if !is_dir {
-                                        internal_command.send(
-                                            InternalCommand::OpenFile { path },
-                                        );
-                                    }
+                                    internal_command
+                                        .send(InternalCommand::OpenFile { path });
                                 }
                             }
                             Err(err) => {
@@ -2596,10 +2583,10 @@ impl WindowTabData {
         {
             let active_editor = self.main_split.active_editor.get_untracked();
             let word = active_editor.map(|editor| editor.word_at_cursor());
-            if let Some(word) = word {
-                if !word.is_empty() {
-                    self.global_search.set_pattern(word);
-                }
+            if let Some(word) = word
+                && !word.is_empty()
+            {
+                self.global_search.set_pattern(word);
             }
         }
         self.common.focus.set(Focus::Panel(kind));

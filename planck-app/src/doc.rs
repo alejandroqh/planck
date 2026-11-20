@@ -203,7 +203,7 @@ impl DocumentHighlight {
     }
 
     pub fn sort(list: &mut [DocumentHighlight]) {
-        list.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
+        list.sort_by_key(|lhs| lhs.start);
     }
 }
 
@@ -1001,11 +1001,11 @@ impl Doc {
 
         let doc = self.clone();
         let send = create_ext_action(self.scope, move |styles| {
-            if let Some(styles) = styles {
-                if doc.buffer.with_untracked(|b| b.rev()) == rev {
-                    doc.semantic_styles.set(Some(styles));
-                    doc.clear_style_cache();
-                }
+            if let Some(styles) = styles
+                && doc.buffer.with_untracked(|b| b.rev()) == rev
+            {
+                doc.semantic_styles.set(Some(styles));
+                doc.clear_style_cache();
             }
         });
 
@@ -1166,7 +1166,7 @@ impl Doc {
                 // Sort the inlay hints by their position, as the LSP does not guarantee that it will
                 // provide them in the order that they are in within the file
                 // as well, Spans does not iterate in the order that they appear
-                hints.sort_by(|left, right| left.position.cmp(&right.position));
+                hints.sort_by_key(|left| left.position);
 
                 let mut hints_span = SpansBuilder::new(len);
                 for hint in hints {
@@ -1654,35 +1654,30 @@ impl Doc {
         let handle_response = create_ext_action(self.scope, move |response| {
             let mut new_highlights: Option<Vec<DocumentHighlight>> = None;
 
-            if doc.buffer.with_untracked(|b| b.rev()) == rev {
-                if let DocumentHighlightsStatus::Busy(offset) =
+            if doc.buffer.with_untracked(|b| b.rev()) == rev
+                && let DocumentHighlightsStatus::Busy(offset) =
                     doc.get_highlights_status.get_untracked()
-                {
-                    if let Ok(ProxyResponse::GetDocumentHighlights {
-                        highlights: Some(highlights),
-                    }) = response
-                    {
-                        new_highlights = doc.buffer.with_untracked(move |buffer| {
-                            let mut result = highlights
-                                .iter()
-                                .map(|highlight| DocumentHighlight {
-                                    start: buffer
-                                        .offset_of_position(&highlight.range.start),
-                                    end: buffer
-                                        .offset_of_position(&highlight.range.end),
-                                })
-                                .collect::<Vec<_>>();
-                            DocumentHighlight::sort(&mut result);
+                && let Ok(ProxyResponse::GetDocumentHighlights {
+                    highlights: Some(highlights),
+                }) = response
+            {
+                new_highlights = doc.buffer.with_untracked(move |buffer| {
+                    let mut result = highlights
+                        .iter()
+                        .map(|highlight| DocumentHighlight {
+                            start: buffer.offset_of_position(&highlight.range.start),
+                            end: buffer.offset_of_position(&highlight.range.end),
+                        })
+                        .collect::<Vec<_>>();
+                    DocumentHighlight::sort(&mut result);
 
-                            // This is a kind of debouncing - if cursor moves before we got response from LSP,
-                            // check if cursor is still in the region.
-                            // In case cursor moved too far we may want to issue LSP request again, for new offset
-                            // but it is easily recoverable by the user - just move cursor a bit to update highlights.
-                            DocumentHighlight::find_for_offset(&result, offset)
-                                .map(|_| result)
-                        });
-                    }
-                }
+                    // This is a kind of debouncing - if cursor moves before we got response from LSP,
+                    // check if cursor is still in the region.
+                    // In case cursor moved too far we may want to issue LSP request again, for new offset
+                    // but it is easily recoverable by the user - just move cursor a bit to update highlights.
+                    DocumentHighlight::find_for_offset(&result, offset)
+                        .map(|_| result)
+                });
             }
 
             doc.highlights.update(|value| *value = new_highlights);
@@ -1856,19 +1851,19 @@ impl DocumentPhantom for Doc {
                             affinity = Some(CursorAffinity::Forward)
                         }
                     };
-                    if affinity.is_none() {
-                        if let Some(next_char) = next_char {
-                            let c = get_char_property(next_char);
-                            if c == CharClassification::Other {
-                                affinity = Some(CursorAffinity::Forward)
-                            } else if matches!(
-                                c,
-                                CharClassification::Lf
-                                    | CharClassification::Cr
-                                    | CharClassification::Space
-                            ) {
-                                affinity = Some(CursorAffinity::Backward)
-                            }
+                    if affinity.is_none()
+                        && let Some(next_char) = next_char
+                    {
+                        let c = get_char_property(next_char);
+                        if c == CharClassification::Other {
+                            affinity = Some(CursorAffinity::Forward)
+                        } else if matches!(
+                            c,
+                            CharClassification::Lf
+                                | CharClassification::Cr
+                                | CharClassification::Space
+                        ) {
+                            affinity = Some(CursorAffinity::Backward)
                         }
                     }
 
@@ -2106,13 +2101,12 @@ impl DocStyling {
         if let Some(bracket_styles) = self.doc.parser.borrow().bracket_pos.get(&line)
         {
             for bracket_style in bracket_styles.iter() {
-                if let Some(fg_color) = bracket_style.style.fg_color.as_ref() {
-                    if let Some(fg_color) = config.style_color(fg_color) {
-                        let start = phantom_text.col_at(bracket_style.start);
-                        let end = phantom_text.col_at(bracket_style.end);
-                        attrs_list
-                            .add_span(start..end, attrs.clone().color(fg_color));
-                    }
+                if let Some(fg_color) = bracket_style.style.fg_color.as_ref()
+                    && let Some(fg_color) = config.style_color(fg_color)
+                {
+                    let start = phantom_text.col_at(bracket_style.start);
+                    let end = phantom_text.col_at(bracket_style.end);
+                    attrs_list.add_span(start..end, attrs.clone().color(fg_color));
                 }
             }
         }
@@ -2191,12 +2185,12 @@ impl Styling for DocStyling {
 
         let phantom_text = self.doc.phantom_text(edid, style, line);
         for line_style in self.doc.line_style(line).iter() {
-            if let Some(fg_color) = line_style.style.fg_color.as_ref() {
-                if let Some(fg_color) = config.style_color(fg_color) {
-                    let start = phantom_text.col_at(line_style.start);
-                    let end = phantom_text.col_at(line_style.end);
-                    attrs_list.add_span(start..end, default.clone().color(fg_color));
-                }
+            if let Some(fg_color) = line_style.style.fg_color.as_ref()
+                && let Some(fg_color) = config.style_color(fg_color)
+            {
+                let start = phantom_text.col_at(line_style.start);
+                let end = phantom_text.col_at(line_style.end);
+                attrs_list.add_span(start..end, default.clone().color(fg_color));
             }
         }
 

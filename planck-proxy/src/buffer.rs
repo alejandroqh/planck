@@ -91,10 +91,8 @@ impl Buffer {
             fs::copy(&path, bak_file_path)?;
         }
 
-        if create_parents {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
-            }
+        if create_parents && let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
         }
 
         let mut f = fs::OpenOptions::new()
