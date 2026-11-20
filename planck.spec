@@ -8,7 +8,7 @@ URL:            https://github.com/alejandroqh/planck
 VCS:            {{{ git_dir_vcs }}}
 Source:        	{{{ git_dir_pack }}}
 
-BuildRequires:  cargo libxkbcommon-x11-devel libxcb-devel vulkan-loader-devel wayland-devel openssl-devel pkgconf libxkbcommon-x11-devel
+BuildRequires:  cargo libxkbcommon-x11-devel libxcb-devel vulkan-loader-devel wayland-devel pkgconf libxkbcommon-x11-devel
 
 %description
 Planck is written in pure Rust, with a UI in Floem (also written in Rust).
