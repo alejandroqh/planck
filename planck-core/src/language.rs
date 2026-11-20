@@ -151,6 +151,16 @@ impl TreeSitterProperties {
         code_glance: (DEFAULT_CODE_GLANCE_LIST, DEFAULT_CODE_GLANCE_IGNORE_LIST),
         sticky_headers: &[],
     };
+
+    /// Grammar file, grammar symbol and query folder all called `name`.
+    const fn named(name: &'static str) -> Self {
+        Self {
+            grammar: Some(name),
+            grammar_fn: Some(name),
+            query: Some(name),
+            ..Self::DEFAULT
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug, PartialOrd, Ord, Default)]
@@ -268,6 +278,8 @@ pub enum PlanckLanguage {
     GitCommit,
     #[strum(message = "Git (config)")]
     GitConfig,
+    #[strum(message = "Git (ignore)")]
+    Gitignore,
     #[strum(message = "Git (rebase)")]
     GitRebase,
     #[strum(message = "Gleam")]
@@ -465,7 +477,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Ada,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["adb", "ads"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -473,7 +485,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Adl,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["adl"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -481,7 +493,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Agda,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["agda"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -489,7 +501,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Astro,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["astro"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -510,6 +522,8 @@ const LANGUAGES: &[SyntaxProperties] = &[
             ".zlogout",
             ".envrc",
             "PKGBUILD",
+            ".env",
+            ".env.*",
         ],
         extensions: &["bash", "sh", "zsh", "ksh"],
         comment: comment_properties!("#"),
@@ -519,7 +533,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Bass,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["bass"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -527,7 +541,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Beancount,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["beancount"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -535,7 +549,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Bibtex,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["bib"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -543,7 +557,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Bitbake,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["bbappend", "bbclass"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -588,7 +602,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Cmake,
         indent: Indent::space(2),
-        files: &["cmakelists"],
+        files: &["CMakeLists.txt"],
         extensions: &["cmake"],
         comment: comment_properties!("#"),
         tree_sitter: TreeSitterProperties {
@@ -630,11 +644,11 @@ const LANGUAGES: &[SyntaxProperties] = &[
         indent: Indent::space(2),
         files: &[],
         extensions: &["cs", "csx"],
-        comment: comment_properties!("#"),
+        comment: comment_properties!("//"),
         tree_sitter: TreeSitterProperties {
-            grammar: None,
-            grammar_fn: None,
-            query: None,
+            grammar: Some("c-sharp"),
+            grammar_fn: Some("c-sharp"),
+            query: Some("c-sharp"),
             code_glance: (DEFAULT_CODE_GLANCE_LIST, DEFAULT_CODE_GLANCE_IGNORE_LIST),
             sticky_headers: &[
                 "interface_declaration",
@@ -662,7 +676,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Cue,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["cue"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -713,7 +727,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Dhall,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["dhall"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -728,7 +742,12 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Dockerfile,
         indent: Indent::space(2),
-        files: &["Dockerfile", "Containerfile"],
+        files: &[
+            "Dockerfile",
+            "Containerfile",
+            "Dockerfile.*",
+            "Containerfile.*",
+        ],
         extensions: &["containerfile", "dockerfile"],
         comment: comment_properties!("#"),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -737,7 +756,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Dot,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["dot", "gv"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -772,14 +791,6 @@ const LANGUAGES: &[SyntaxProperties] = &[
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
-        id: PlanckLanguage::FSharp,
-        indent: Indent::tab(),
-        files: &[],
-        extensions: &[],
-        comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
-    },
-    SyntaxProperties {
         id: PlanckLanguage::Fish,
         indent: Indent::tab(),
         files: &[],
@@ -807,25 +818,36 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Fortran,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["f90", "f95", "f03", "f08", "f", "for"],
+        comment: comment_properties!(),
+        tree_sitter: TreeSitterProperties::DEFAULT,
+    },
+    SyntaxProperties {
+        id: PlanckLanguage::FSharp,
+        indent: Indent::tab(),
+        files: &[],
+        extensions: &["fsx", "fsi"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
         id: PlanckLanguage::Gitattributes,
         indent: Indent::tab(),
-        files: &[],
+        files: &[".gitattributes"],
         extensions: &[],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties {
+            query: Some("git-attributes"),
+            ..TreeSitterProperties::DEFAULT
+        },
     },
     SyntaxProperties {
         id: PlanckLanguage::GitCommit,
         indent: Indent::tab(),
-        files: &[],
+        files: &["COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG"],
         extensions: &[],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("git-commit"),
     },
     SyntaxProperties {
         id: PlanckLanguage::GitConfig,
@@ -833,21 +855,34 @@ const LANGUAGES: &[SyntaxProperties] = &[
         files: &[".gitconfig", ".git/config"],
         extensions: &[],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("git-config"),
+    },
+    SyntaxProperties {
+        id: PlanckLanguage::Gitignore,
+        indent: Indent::tab(),
+        files: &[".gitignore", ".dockerignore"],
+        extensions: &[],
+        comment: comment_properties!("#"),
+        tree_sitter: TreeSitterProperties {
+            grammar: Some("gitignore"),
+            grammar_fn: Some("gitignore"),
+            query: Some("git-ignore"),
+            ..TreeSitterProperties::DEFAULT
+        },
     },
     SyntaxProperties {
         id: PlanckLanguage::GitRebase,
         indent: Indent::tab(),
-        files: &[],
+        files: &["git-rebase-todo"],
         extensions: &[],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("git-rebase"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Gleam,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["gleam"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -865,7 +900,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         files: &[],
         // spellchecker:off
         extensions: &[
-            "glsl", "cs", "vs", "gs", "fs", "csh", "vsh", "gsh", "fsh", "cshader",
+            "glsl", "vs", "gs", "fs", "csh", "vsh", "gsh", "fsh", "cshader",
             "vshader", "gshader", "fshader", "comp", "vert", "geom", "frag", "tesc",
             "tese", "mesh", "task", "rgen", "rint", "rahit", "rchit", "rmiss",
             "rcall",
@@ -878,7 +913,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Gn,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["gn", "gni"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -908,7 +943,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::GoMod,
         indent: Indent::tab(),
-        files: &[],
+        files: &["go.mod"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -917,14 +952,14 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::GoTemplate,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["gotmpl"],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("gotmpl"),
     },
     SyntaxProperties {
         id: PlanckLanguage::GoWork,
         indent: Indent::tab(),
-        files: &[],
+        files: &["go.work"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -933,15 +968,15 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::GraphQl,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["graphql", "gql"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
         id: PlanckLanguage::Groovy,
         indent: Indent::tab(),
-        files: &[],
-        extensions: &[],
+        files: &["Jenkinsfile"],
+        extensions: &["groovy", "gradle"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -980,7 +1015,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Hosts,
         indent: Indent::tab(),
-        files: &[],
+        files: &["hosts"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -996,8 +1031,10 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Ini,
         indent: Indent::tab(),
-        files: &[],
-        extensions: &[],
+        files: &[".editorconfig"],
+        extensions: &[
+            "ini", "cfg", "conf", "service", "timer", "socket", "desktop",
+        ],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1034,8 +1071,8 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Json,
         indent: Indent::space(4),
-        files: &[],
-        extensions: &["json", "har"],
+        files: &["flake.lock"],
+        extensions: &["json", "har", "jsonc"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1043,7 +1080,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Json5,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["json5"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1051,7 +1088,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Jsonnet,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["jsonnet", "libsonnet"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1095,7 +1132,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Kdl,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["kdl"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1127,7 +1164,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
             multi_line_prefix: None,
             multi_line_end: Some("*/"),
         },
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("kotlin"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Latex,
@@ -1141,7 +1178,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Ld,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["ld"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1149,7 +1186,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Llvm,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["ll"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1157,9 +1194,9 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::LlvmMir,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["mir"],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("llvm-mir"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Log,
@@ -1180,8 +1217,8 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Make,
         indent: Indent::tab(),
-        files: &[],
-        extensions: &[],
+        files: &["Makefile", "makefile", "GNUmakefile"],
+        extensions: &["mk"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1211,7 +1248,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::Meson,
         indent: Indent::tab(),
-        files: &[],
+        files: &["meson.build", "meson_options.txt", "meson.options"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -1220,7 +1257,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Nasm,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["asm", "nasm"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1243,9 +1280,9 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Nushell,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["nu"],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("nu"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Ocaml,
@@ -1268,13 +1305,13 @@ const LANGUAGES: &[SyntaxProperties] = &[
         files: &[],
         extensions: &["mli"],
         comment: comment_properties!("(*"),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("ocaml-interface"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Odin,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["odin"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1282,7 +1319,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::OpenCl,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["cl"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1290,14 +1327,14 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Pascal,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["pas", "pp"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
         id: PlanckLanguage::Passwd,
         indent: Indent::tab(),
-        files: &[],
+        files: &["passwd"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -1306,7 +1343,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Pem,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["pem", "crt"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1349,7 +1386,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Pkl,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["pkl"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1444,7 +1481,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Rego,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["rego"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1452,7 +1489,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Ron,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["ron"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1460,15 +1497,15 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Rst,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["rst"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
         id: PlanckLanguage::Ruby,
         indent: Indent::space(2),
-        files: &[],
-        extensions: &["rb"],
+        files: &["Gemfile", "Rakefile"],
+        extensions: &["rb", "gemspec", "rake"],
         comment: comment_properties!("#"),
         tree_sitter: TreeSitterProperties {
             grammar: None,
@@ -1504,7 +1541,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Scala,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["scala", "sc", "sbt"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1528,15 +1565,15 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::ShellScript,
         indent: Indent::space(2),
         files: &[],
-        extensions: &["sh"],
+        extensions: &[],
         comment: comment_properties!("#"),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("bash"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Smithy,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["smithy"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1551,7 +1588,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
     SyntaxProperties {
         id: PlanckLanguage::SshClientConfig,
         indent: Indent::tab(),
-        files: &[],
+        files: &[".ssh/config", "ssh_config"],
         extensions: &[],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
@@ -1560,7 +1597,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Strace,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["strace"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1576,7 +1613,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Sway,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["sw"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1636,7 +1673,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Typst,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["typ"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1644,7 +1681,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Verilog,
         indent: Indent::tab(),
         files: &[],
-        extensions: &[],
+        extensions: &["v", "sv", "svh"],
         comment: comment_properties!(),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1660,9 +1697,9 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Wasm,
         indent: Indent::space(4),
         files: &[],
-        extensions: &["wasm"],
+        extensions: &["wat"],
         comment: comment_properties!(),
-        tree_sitter: TreeSitterProperties::DEFAULT,
+        tree_sitter: TreeSitterProperties::named("wat"),
     },
     SyntaxProperties {
         id: PlanckLanguage::Wgsl,
@@ -1684,7 +1721,7 @@ const LANGUAGES: &[SyntaxProperties] = &[
         id: PlanckLanguage::Xml,
         indent: Indent::space(4),
         files: &[],
-        extensions: &["xml", "csproj"],
+        extensions: &["xml", "csproj", "svg", "xsd", "plist"],
         comment: comment_properties!("//"),
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
@@ -1843,26 +1880,37 @@ impl PlanckLanguage {
     }
 
     pub fn from_path_raw(path: &Path) -> Option<PlanckLanguage> {
-        let filename = path.file_name().and_then(|s| s.to_str());
+        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         let extension = path
             .extension()
             .and_then(|s| s.to_str().map(|s| s.to_lowercase()));
+        // `files` entries: an exact name, `Name.*` for `Name.anything`, or
+        // `dir/name` to match the end of the path.
+        let file_matches = |f: &str| {
+            if let Some(prefix) = f.strip_suffix(".*") {
+                filename
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with('.'))
+            } else if f.contains('/') {
+                path.ends_with(f)
+            } else {
+                f == filename
+            }
+        };
+        // File names go first, so CMakeLists.txt isn't taken by `.txt`.
         // NOTE: This is a linear search.  It is assumed that this function
         // isn't called in any tight loop.
-        for properties in LANGUAGES {
-            if properties.files.iter().any(|f| Some(*f) == filename) {
-                return Some(properties.id);
-            }
-            if properties
-                .extensions
-                .iter()
-                .any(|e| Some(*e) == extension.as_deref())
-            {
-                return Some(properties.id);
-            }
-        }
-
-        None
+        LANGUAGES
+            .iter()
+            .find(|p| p.files.iter().any(|f| file_matches(f)))
+            .or_else(|| {
+                LANGUAGES.iter().find(|p| {
+                    p.extensions
+                        .iter()
+                        .any(|e| Some(*e) == extension.as_deref())
+                })
+            })
+            .map(|p| p.id)
     }
 
     /// Pick a language from the path and the first lines of the text.
@@ -2312,6 +2360,49 @@ mod tests {
         assert_eq!(l, PlanckLanguage::Rust);
         let l = PlanckLanguage::from_path(&PathBuf::from("/home/u/.zshrc"));
         assert_eq!(l, PlanckLanguage::Bash);
+
+        use PlanckLanguage::*;
+        for (path, want) in [
+            ("/p/CMakeLists.txt", Cmake),
+            ("/p/notes.txt", PlainText),
+            ("/p/Dockerfile.dev", Dockerfile),
+            ("/p/Containerfile.prod", Dockerfile),
+            ("/p/Dockerfiles", PlainText),
+            ("/p/.git/config", GitConfig),
+            ("/home/u/.ssh/config", SshClientConfig),
+            ("/p/config", PlainText),
+            ("/p/.env.local", Bash),
+            ("/p/Makefile", Make),
+            ("/p/app.cs", Csharp),
+            ("/p/x.fish", Fish),
+            ("/p/build.gradle.kts", KotlinBuildScript),
+        ] {
+            assert_eq!(
+                PlanckLanguage::from_path(&PathBuf::from(path)),
+                want,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_languages_table_matches_enum() {
+        // `properties()` indexes LANGUAGES by the enum value.
+        for (i, l) in super::LANGUAGES.iter().enumerate() {
+            assert_eq!(l.id as usize, i, "LANGUAGES[{i}] is {:?}", l.id);
+        }
+    }
+
+    #[test]
+    fn test_no_extension_or_file_claimed_twice() {
+        let mut seen = std::collections::HashMap::new();
+        for l in super::LANGUAGES {
+            for key in l.extensions.iter().chain(l.files) {
+                if let Some(first) = seen.insert(*key, l.id) {
+                    panic!("{key:?} is claimed by {first:?} and {:?}", l.id);
+                }
+            }
+        }
     }
 
     #[test]
