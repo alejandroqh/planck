@@ -502,8 +502,14 @@ impl SyntaxLayers {
 
         let injection_callback = |language: &InjectionLanguageMarker| {
             let language = match language {
+                // Short names like js, py or yml (fence tags) go through the
+                // extension table, like the markdown preview does.
                 InjectionLanguageMarker::Name(name) => {
-                    PlanckLanguage::from_name(name)
+                    PlanckLanguage::from_name(name).or_else(|| {
+                        PlanckLanguage::from_path_raw(Path::new(&format!(
+                            "x.{name}"
+                        )))
+                    })
                 }
                 InjectionLanguageMarker::Filename(path) => {
                     PlanckLanguage::from_path_raw(path)
@@ -960,40 +966,15 @@ impl Syntax {
         let tree = layers.try_tree();
 
         let styles = if tree.is_some() {
-            let mut current_hl: Option<Highlight> = None;
-            let mut highlights: SpansBuilder<Style> =
-                SpansBuilder::new(new_text.len());
-
             // TODO: Should we be ignoring highlight errors via flattening them?
-            for highlight in layers
+            let events = layers
                 .highlight_iter(
                     &new_text,
                     Some(0..new_text.len()),
                     Some(&self.cancel_flag),
                 )
-                .flatten()
-            {
-                match highlight {
-                    HighlightEvent::Source { start, end } => {
-                        if let Some(hl) = current_hl {
-                            if let Some(hl) = SCOPES.get(hl.0) {
-                                highlights.add_span(
-                                    Interval::new(start, end),
-                                    Style {
-                                        fg_color: Some(hl.to_string()),
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    HighlightEvent::HighlightStart(hl) => {
-                        current_hl = Some(hl);
-                    }
-                    HighlightEvent::HighlightEnd => current_hl = None,
-                }
-            }
-
-            Some(highlights.build())
+                .flatten();
+            Some(styles_from_events(new_text.len(), events))
         } else {
             None
         };
@@ -1233,9 +1214,64 @@ impl Syntax {
     }
 }
 
+/// Turn highlight events into color spans. Highlights nest (an escape inside a
+/// string, `${}` inside a template), so a span takes the innermost open color
+/// and the outer color comes back once the inner one ends.
+fn styles_from_events(
+    len: usize,
+    events: impl Iterator<Item = HighlightEvent>,
+) -> Spans<Style> {
+    let mut open: Vec<Highlight> = Vec::new();
+    let mut highlights = SpansBuilder::new(len);
+    for event in events {
+        match event {
+            HighlightEvent::Source { start, end } => {
+                if let Some(scope) = open.last().and_then(|hl| SCOPES.get(hl.0)) {
+                    highlights.add_span(
+                        Interval::new(start, end),
+                        Style {
+                            fg_color: Some(scope.to_string()),
+                        },
+                    );
+                }
+            }
+            HighlightEvent::HighlightStart(hl) => open.push(hl),
+            HighlightEvent::HighlightEnd => {
+                open.pop();
+            }
+        }
+    }
+    highlights.build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_highlight_keeps_outer_color() {
+        use HighlightEvent::*;
+        let scope =
+            |name| Highlight(SCOPES.iter().position(|s| *s == name).unwrap());
+        // "a\tb": a string with an escape in the middle
+        let events = [
+            HighlightStart(scope("string")),
+            Source { start: 0, end: 1 },
+            HighlightStart(scope("string.escape")),
+            Source { start: 1, end: 3 },
+            HighlightEnd,
+            Source { start: 3, end: 4 },
+            HighlightEnd,
+        ];
+        let spans = styles_from_events(4, events.into_iter());
+        let got: Vec<_> = spans
+            .iter()
+            .map(|(iv, s)| (iv.start, iv.end, s.fg_color.clone().unwrap()))
+            .collect();
+        let want = [(0, 1, "string"), (1, 3, "string.escape"), (3, 4, "string")]
+            .map(|(a, b, c)| (a, b, c.to_string()));
+        assert_eq!(got, want);
+    }
 
     #[test]
     fn bracket_colors_by_depth_and_respects_limit() {

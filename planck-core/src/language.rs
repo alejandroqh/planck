@@ -2116,11 +2116,13 @@ impl PlanckLanguage {
         // Try reading highlights from user config dir
         if let Some(queries_dir) = Directory::queries_directory() {
             return (
-                read_grammar_query(
-                    &queries_dir,
-                    &query_name,
-                    Self::HIGHLIGHTS_QUERIES_FILE_NAME,
-                ),
+                // Planck's own rules first, so they win over upstream ones.
+                Self::extra_highlights(&query_name).to_string()
+                    + &read_grammar_query(
+                        &queries_dir,
+                        &query_name,
+                        Self::HIGHLIGHTS_QUERIES_FILE_NAME,
+                    ),
                 read_grammar_query(
                     &queries_dir,
                     &query_name,
@@ -2130,6 +2132,21 @@ impl PlanckLanguage {
         }
 
         ("".to_string(), "".to_string())
+    }
+
+    /// Highlight rules Planck adds on top of the upstream query of a language.
+    fn extra_highlights(query_name: &str) -> &'static str {
+        match query_name {
+            "ada" => include_str!("../queries/ada/highlights.scm"),
+            "bash" => include_str!("../queries/bash/highlights.scm"),
+            "c" => include_str!("../queries/c/highlights.scm"),
+            "comment" => include_str!("../queries/comment/highlights.scm"),
+            "graphql" => include_str!("../queries/graphql/highlights.scm"),
+            "json" => include_str!("../queries/json/highlights.scm"),
+            "pkl" => include_str!("../queries/pkl/highlights.scm"),
+            "rust" => include_str!("../queries/rust/highlights.scm"),
+            _ => "",
+        }
     }
 
     pub(crate) fn new_highlight_config(

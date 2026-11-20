@@ -41,6 +41,10 @@ pub const SCOPES: &[&str] = &[
     "markup.link.url",
     "markup.link.label",
     "markup.link.text",
+    "markup.raw",
+    "markup.strikethrough",
+    "diff.plus",
+    "diff.minus",
 ];
 
 pub fn line_styles(
