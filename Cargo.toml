@@ -54,7 +54,7 @@ chrono            = { version = "0.4" }
 clap              = { version = "4.5.0", default-features = false, features = ["std", "help", "usage", "derive"] }
 crossbeam-channel = { version = "0.5.12" }
 directories       = { version = "4.0.1" }
-git2              = { version = "0.21.0", features = ["vendored-openssl", "vendored-libgit2"] }
+git2              = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }  # local repo only: no https/ssh, so no OpenSSL
 globset           = { version = "0.4.14" }
 hashbrown         = { version = "0.14.5", features = ["serde"] }
 im                = { version = "15.0.0", features = ["serde"] }
