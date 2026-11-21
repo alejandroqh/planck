@@ -14,7 +14,7 @@ const RELEASE: &str = "grammars-v0.4.5";
 const ASSETS: &[(&str, &str)] = &[
     (
         "grammars-linux-aarch64.tar.zst",
-        "665b0d5bca8ab7438a430377e5cdf01c098a99a4608130c223f0d0438e5d70b5",
+        "74e40c831b2bea10fa45966d516790e9f52754b37742d7ff9a640917831288d9",
     ),
     (
         "grammars-linux-x86_64.tar.zst",
