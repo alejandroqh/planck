@@ -34,6 +34,7 @@ use crate::{
     alert::AlertButton,
     code_lens::CodeLensData,
     command::InternalCommand,
+    config::color::PlanckColor,
     doc::{DiagnosticData, Doc, DocContent, DocHistory, EditorDiagnostic},
     editor::{
         EditorData, EditorInfo,
@@ -2179,10 +2180,31 @@ impl MainSplitData {
                 }
             }
         };
-        for child_tab in tabs_to_close {
-            self.editor_tab_child_close(editor_tab_id, child_tab, false);
-        }
+        self.editor_tab_children_close(editor_tab_id, tabs_to_close);
         Some(())
+    }
+
+    /// Closes `children` one at a time, so each unsaved one gets its own dialog.
+    /// Cancelling a dialog stops the rest.
+    fn editor_tab_children_close(
+        &self,
+        editor_tab_id: EditorTabId,
+        mut children: Vec<EditorTabChild>,
+    ) {
+        if children.is_empty() {
+            return;
+        }
+        let child = children.remove(0);
+        let main_split = self.clone();
+        self.editor_tab_child_close_then(
+            editor_tab_id,
+            child,
+            false,
+            Some(Rc::new(move || {
+                main_split
+                    .editor_tab_children_close(editor_tab_id, children.clone());
+            })),
+        );
     }
 
     pub fn editor_tab_child_close(
@@ -2190,6 +2212,18 @@ impl MainSplitData {
         editor_tab_id: EditorTabId,
         child: EditorTabChild,
         force: bool,
+    ) -> Option<()> {
+        self.editor_tab_child_close_then(editor_tab_id, child, force, None)
+    }
+
+    /// Like `editor_tab_child_close`, then runs `then` once the child is closed
+    /// (after the unsaved-changes dialog, if one is shown; never if it's cancelled).
+    fn editor_tab_child_close_then(
+        &self,
+        editor_tab_id: EditorTabId,
+        child: EditorTabChild,
+        force: bool,
+        then: Option<Rc<dyn Fn()>>,
     ) -> Option<()> {
         if !force
             && let Some((name, doc, editor)) =
@@ -2200,7 +2234,12 @@ impl MainSplitData {
                 && self.common.config.get_untracked().editor.autosave_interval > 0
             {
                 editor.save(false, || {});
-                return self.editor_tab_child_close(editor_tab_id, child, true);
+                return self.editor_tab_child_close_then(
+                    editor_tab_id,
+                    child,
+                    true,
+                    then,
+                );
             }
             let internal_command = self.common.internal_command;
             let main_split = self.clone();
@@ -2210,16 +2249,19 @@ impl MainSplitData {
                 DocContent::Scratch { .. } => {
                     let child = child.clone();
                     let doc = doc.clone();
+                    let then = then.clone();
                     let save_action = Rc::new(move || {
                         let child = child.clone();
                         let main_split = main_split.clone();
                         let doc = doc.clone();
+                        let then = then.clone();
                         internal_command.send(InternalCommand::HideAlert);
                         save_as(
                             FileDialogOptions::new().title("Save File"),
                             move |file: Option<FileInfo>| {
                                 let main_split = main_split.clone();
                                 let child = child.clone();
+                                let then = then.clone();
                                 let local_main_split = main_split.clone();
                                 if let Some(mut file) = file {
                                     main_split.save_as(
@@ -2233,10 +2275,11 @@ impl MainSplitData {
                                         move || {
                                             local_main_split
                                                 .clone()
-                                                .editor_tab_child_close(
+                                                .editor_tab_child_close_then(
                                                     editor_tab_id,
                                                     child.clone(),
                                                     false,
+                                                    then.clone(),
                                                 );
                                         },
                                     );
@@ -2246,6 +2289,7 @@ impl MainSplitData {
                     });
                     Some(AlertButton {
                         text: "Save As…".to_string(),
+                        color: PlanckColor::PLANCK_BUTTON_PRIMARY_BACKGROUND,
                         action: save_action,
                     })
                 }
@@ -2253,8 +2297,10 @@ impl MainSplitData {
                     let editor = editor.clone();
                     let editors = self.editors;
                     let editor_id = editor.id();
+                    let then = then.clone();
                     let save_action = Rc::new(move || {
                         internal_command.send(InternalCommand::HideAlert);
+                        let then = then.clone();
                         editor.save(false, move || {
                             if let Some(editor) = editors.editor_untracked(editor_id)
                             {
@@ -2264,10 +2310,14 @@ impl MainSplitData {
                                     Modifiers::empty(),
                                 );
                             }
+                            if let Some(then) = &then {
+                                then();
+                            }
                         });
                     });
                     Some(AlertButton {
                         text: "Save".to_string(),
+                        color: PlanckColor::PLANCK_BUTTON_PRIMARY_BACKGROUND,
                         action: save_action,
                     })
                 }
@@ -2275,6 +2325,20 @@ impl MainSplitData {
                 DocContent::History(_) => None,
             };
             if let Some(save_button) = save_button {
+                // Bring the file to the front so it shows through the dialog's backdrop.
+                if let Some(editor_tab) = self
+                    .editor_tabs
+                    .with_untracked(|tabs| tabs.get(&editor_tab_id).copied())
+                {
+                    self.active_editor_tab.set(Some(editor_tab_id));
+                    editor_tab.update(|tab| {
+                        if let Some(index) =
+                            tab.children.iter().position(|(_, _, c)| c == &child)
+                        {
+                            tab.active = index;
+                        }
+                    });
+                }
                 let main_split = self.clone();
                 let child = child.clone();
                 self.common
@@ -2285,20 +2349,23 @@ impl MainSplitData {
                         ),
                         msg: "Your changes will be lost if you don't save them."
                             .to_string(),
+                        // Rendered after Cancel, so Save ends up rightmost.
                         buttons: vec![
-                            save_button,
                             AlertButton {
                                 text: "Discard".to_string(),
+                                color: PlanckColor::PLANCK_ERROR,
                                 action: Rc::new(move || {
                                     internal_command
                                         .send(InternalCommand::HideAlert);
-                                    main_split.editor_tab_child_close(
+                                    main_split.editor_tab_child_close_then(
                                         editor_tab_id,
                                         child.clone(),
                                         true,
+                                        then.clone(),
                                     );
                                 }),
                             },
+                            save_button,
                         ],
                     });
             }
@@ -2306,6 +2373,18 @@ impl MainSplitData {
             return Some(());
         }
 
+        let closed = self.editor_tab_child_remove(editor_tab_id, child);
+        if let Some(then) = then {
+            then();
+        }
+        closed
+    }
+
+    fn editor_tab_child_remove(
+        &self,
+        editor_tab_id: EditorTabId,
+        child: EditorTabChild,
+    ) -> Option<()> {
         let editor_tabs = self.editor_tabs.get_untracked();
         let editor_tab = editor_tabs.get(&editor_tab_id).copied()?;
 
