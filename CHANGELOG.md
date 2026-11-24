@@ -1,5 +1,15 @@
 # Changelog
 
+## Planck 1.2.1 (2026-11-24)
+
+### Features
+- Binary files shown as a hex dump are colored: the offset is dimmed, and each byte and its ASCII character get a color by kind (zero, printable, whitespace or control, other)
+- The unsaved-changes dialog is laid out more clearly, with the warning beside the message and Cancel, Discard and Save in one row. Save and Discard are outlined in the theme's primary and error colors
+- Closing a file that isn't in front brings it to the front before asking, so it shows behind the dialog
+
+### Bug Fixes
+- Close Others, Close to the Left and Close to the Right ask about every unsaved file in turn, instead of only the last one. Cancel stops there and keeps the remaining tabs open
+
 ## Planck 1.2.0 (2026-11-20)
 
 ### Features
