@@ -1,5 +1,5 @@
 Name:           planck-git
-Version:        1.2.1.{{{ git_dir_version }}}
+Version:        1.2.2.{{{ git_dir_version }}}
 Release:        1
 Summary:        Fast, focused code editor
 License:        Apache-2.0

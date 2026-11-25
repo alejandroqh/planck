@@ -1,5 +1,13 @@
 # Changelog
 
+## Planck 1.2.2 (2026-11-25)
+
+### Changes
+- The unsaved-changes dialog buttons are filled instead of outlined: Save in the theme's primary color, Discard in its error color, Cancel in soft grey
+
+### Bug Fixes
+- A long file name in the unsaved-changes dialog wraps instead of running past the dialog's edge
+
 ## Planck 1.2.1 (2026-11-24)
 
 ### Features

@@ -33,6 +33,11 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="1.2.2" date="2026-11-25" type="stable">
+            <description>
+                <p>The unsaved-changes dialog buttons are filled in the theme's colors, and long file names wrap inside the dialog.</p>
+            </description>
+        </release>
         <release version="1.2.1" date="2026-11-24" type="stable">
             <description>
                 <p>Binary files shown as a hex dump are colored, and the unsaved-changes dialog is clearer and asks about every file when closing several tabs.</p>
