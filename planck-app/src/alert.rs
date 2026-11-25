@@ -20,7 +20,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AlertButton {
     pub text: String,
-    /// Theme color key for the button border.
+    /// Theme color key for the button text and its tinted fill.
     pub color: &'static str,
     pub action: Rc<dyn Fn()>,
 }
@@ -65,22 +65,19 @@ pub fn alert_box(alert_data: AlertBoxData) -> impl View {
     let button_style = move |color: &'static str| {
         move |s: Style| {
             let config = config.get();
+            // Text in the theme color on a faint fill of it, deeper on hover and press.
+            let color = config.color(color);
             s.padding_horiz(16.0)
                 .font_size(config.ui.font_size() as f32)
                 .line_height(1.8)
-                .border(1.0)
                 .border_radius(6.0)
-                .border_color(config.color(color))
+                .color(color)
+                .background(color.multiply_alpha(0.15))
                 .hover(|s| {
-                    s.cursor(CursorStyle::Pointer).background(
-                        config.color(PlanckColor::PANEL_HOVERED_BACKGROUND),
-                    )
+                    s.cursor(CursorStyle::Pointer)
+                        .background(color.multiply_alpha(0.25))
                 })
-                .active(|s| {
-                    s.background(
-                        config.color(PlanckColor::PANEL_HOVERED_ACTIVE_BACKGROUND),
-                    )
-                })
+                .active(|s| s.background(color.multiply_alpha(0.35)))
         }
     };
 
@@ -116,7 +113,7 @@ pub fn alert_box(alert_data: AlertBoxData) -> impl View {
                         .on_click_stop(move |_| {
                             active.set(false);
                         })
-                        .style(button_style(PlanckColor::PLANCK_BORDER)),
+                        .style(button_style(PlanckColor::EDITOR_FOREGROUND)),
                     dyn_stack(
                         move || buttons.get(),
                         move |_button| {
