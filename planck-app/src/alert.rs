@@ -105,7 +105,13 @@ pub fn alert_box(alert_data: AlertBoxData) -> impl View {
                                 .color(config.get().color(PlanckColor::EDITOR_DIM))
                         }),
                     ))
-                    .style(|s| s.flex_col().flex_grow(1.0_f32).flex_basis(0.0)),
+                    // min_width(0) lets the column shrink below its text so long titles wrap.
+                    .style(|s| {
+                        s.flex_col()
+                            .flex_grow(1.0_f32)
+                            .flex_basis(0.0)
+                            .min_width(0.0)
+                    }),
                 ))
                 .style(|s| s.items_start().width_pct(100.0)),
                 stack((
