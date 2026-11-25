@@ -448,6 +448,8 @@ pub enum PlanckLanguage {
     Typst,
     #[strum(message = "Verilog")]
     Verilog,
+    #[strum(message = "VHDL")]
+    Vhdl,
     #[strum(message = "Vue")]
     Vue,
     #[strum(message = "WASM")]
@@ -1714,6 +1716,14 @@ const LANGUAGES: &[SyntaxProperties] = &[
         tree_sitter: TreeSitterProperties::DEFAULT,
     },
     SyntaxProperties {
+        id: PlanckLanguage::Vhdl,
+        indent: Indent::tab(),
+        files: &[],
+        extensions: &["vhd", "vhdl"],
+        comment: comment_properties!("--"),
+        tree_sitter: TreeSitterProperties::DEFAULT,
+    },
+    SyntaxProperties {
         id: PlanckLanguage::Vue,
         indent: Indent::space(2),
         files: &[],
@@ -2431,6 +2441,8 @@ mod tests {
             ("/p/app.cs", Csharp),
             ("/p/x.fish", Fish),
             ("/p/build.gradle.kts", KotlinBuildScript),
+            ("/p/top.vhd", Vhdl),
+            ("/p/base.j2", Jinja2),
         ] {
             assert_eq!(
                 PlanckLanguage::from_path(&PathBuf::from(path)),
